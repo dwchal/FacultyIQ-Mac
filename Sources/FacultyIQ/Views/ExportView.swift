@@ -1,0 +1,94 @@
+import AppKit
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct ExportView: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var confirmation: String?
+
+    var body: some View {
+        Form {
+            Section("Data Exports") {
+                exportRow(
+                    "Faculty Metrics",
+                    detail: "One row per faculty member: works, citations, h-index, i10, productivity, OA share.",
+                    filename: "faculty_metrics.csv",
+                    disabled: store.metrics.isEmpty
+                ) {
+                    MetricsEngine.metricsCSV(metrics: store.metrics, roster: store.roster)
+                }
+                exportRow(
+                    "Yearly Time Series",
+                    detail: "Long format: name × year × works published × citations received.",
+                    filename: "faculty_yearly.csv",
+                    disabled: store.personData.isEmpty
+                ) {
+                    MetricsEngine.yearlyCSV(roster: store.roster, personData: store.personData)
+                }
+                exportRow(
+                    "Roster with Resolutions",
+                    detail: "The imported roster plus each member's resolved OpenAlex ID.",
+                    filename: "roster_resolved.csv",
+                    disabled: store.roster.isEmpty
+                ) {
+                    rosterCSV()
+                }
+            }
+            if let confirmation {
+                Section {
+                    Label(confirmation, systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(ChartPalette.positive)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func exportRow(_ title: String, detail: String, filename: String,
+                           disabled: Bool, content: @escaping () -> String) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Save as CSV…") {
+                saveCSV(defaultName: filename, content: content())
+            }
+            .disabled(disabled)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func saveCSV(defaultName: String, content: String) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = defaultName
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            confirmation = "Saved \(url.lastPathComponent)"
+        } catch {
+            store.lastError = error.localizedDescription
+        }
+    }
+
+    private func rosterCSV() -> String {
+        var lines = ["Name,Email,Rank,Hire Year,ORCID,Scopus ID,OpenAlex ID,Resolved Name,Resolution Method"]
+        for member in store.roster {
+            let res = store.resolution(for: member)
+            lines.append([
+                member.name,
+                member.email ?? "",
+                member.rank ?? "",
+                member.hireYear.map(String.init) ?? "",
+                member.orcid ?? "",
+                member.scopusID ?? "",
+                res?.openalexID ?? "",
+                res?.displayName ?? "",
+                res?.method.rawValue ?? "",
+            ].map(MetricsEngine.csvEscape).joined(separator: ","))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+}

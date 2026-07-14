@@ -74,6 +74,7 @@ struct DashboardView: View {
                 .foregroundStyle(ChartPalette.series1)
                 .cornerRadius(2)
             }
+            .yearXAxis(years: data.map(\.year))
         }
     }
 
@@ -94,6 +95,7 @@ struct DashboardView: View {
                 .foregroundStyle(ChartPalette.series1)
                 .symbolSize(36)
             }
+            .yearXAxis(years: data.map(\.year))
         }
     }
 
@@ -110,6 +112,7 @@ struct DashboardView: View {
                 .cornerRadius(2)
             }
             .chartYScale(domain: 0...100)
+            .yearXAxis(years: data.map(\.year))
         }
     }
 

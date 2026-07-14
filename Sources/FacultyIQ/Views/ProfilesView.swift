@@ -138,6 +138,7 @@ private struct ProfileDetail: View {
                 .foregroundStyle(ChartPalette.series1)
                 .cornerRadius(2)
             }
+            .yearXAxis(years: series.map(\.key))
             .frame(height: 180)
         }
         .padding(16)

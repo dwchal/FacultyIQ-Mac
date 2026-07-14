@@ -5,6 +5,20 @@ struct RosterView: View {
     @EnvironmentObject private var store: AppStore
     @State private var showingImporter = false
     @State private var confirmReplace = false
+    @State private var selection: Set<FacultyMember.ID> = []
+    @State private var editorTarget: EditorTarget?
+
+    private enum EditorTarget: Identifiable {
+        case new
+        case edit(FacultyMember)
+
+        var id: String {
+            switch self {
+            case .new: "new"
+            case .edit(let member): member.id.uuidString
+            }
+        }
+    }
 
     var body: some View {
         Group {
@@ -16,6 +30,12 @@ struct RosterView: View {
         }
         .toolbar {
             ToolbarItemGroup {
+                Button {
+                    editorTarget = .new
+                } label: {
+                    Label("Add Person…", systemImage: "person.badge.plus")
+                }
+                .help("Add a faculty member to the roster")
                 Button {
                     showingImporter = true
                 } label: {
@@ -44,16 +64,29 @@ struct RosterView: View {
         ) {
             Button("Clear Everything", role: .destructive) { store.clearAll() }
         }
+        .sheet(item: $editorTarget) { target in
+            switch target {
+            case .new: MemberEditorSheet(member: nil)
+            case .edit(let member): MemberEditorSheet(member: member)
+            }
+        }
+    }
+
+    private func edit(_ id: FacultyMember.ID?) {
+        if let member = store.roster.first(where: { $0.id == id }) {
+            editorTarget = .edit(member)
+        }
     }
 
     private var emptyState: some View {
         ContentUnavailableView {
             Label("No Roster Loaded", systemImage: "person.3")
         } description: {
-            Text("Import a faculty roster CSV with names and optional ORCID / Scopus IDs, or load the sample to explore the app.")
+            Text("Import a faculty roster CSV, build one person at a time, or load the sample to explore the app.")
         } actions: {
             Button("Import CSV…") { showingImporter = true }
                 .buttonStyle(.borderedProminent)
+            Button("Add Person…") { editorTarget = .new }
             Button("Load Sample Roster") { store.loadSampleRoster() }
         }
     }
@@ -62,7 +95,7 @@ struct RosterView: View {
         VStack(alignment: .leading, spacing: 0) {
             completenessHeader
             Divider()
-            Table(store.roster) {
+            Table(store.roster, selection: $selection) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Rank") { Text($0.rank ?? "—") }
                 TableColumn("Hired") { Text($0.hireYear.map(String.init) ?? "—") }
@@ -79,6 +112,19 @@ struct RosterView: View {
                     idCell(member.scholarID)
                 }
                 TableColumn("Associations") { Text($0.associations ?? "—") }
+            }
+            .contextMenu(forSelectionType: FacultyMember.ID.self) { ids in
+                if ids.count == 1 {
+                    Button("Edit…") { edit(ids.first) }
+                }
+                if !ids.isEmpty {
+                    Button("Delete", role: .destructive) { store.removeMembers(ids) }
+                }
+            } primaryAction: { ids in
+                edit(ids.first) // double-click opens the editor
+            }
+            .onDeleteCommand {
+                if !selection.isEmpty { store.removeMembers(selection) }
             }
         }
     }

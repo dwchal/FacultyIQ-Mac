@@ -68,6 +68,26 @@ final class AppStore: ObservableObject {
         save()
     }
 
+    func addMember(_ member: FacultyMember) {
+        roster.append(member)
+        save()
+    }
+
+    func updateMember(_ member: FacultyMember) {
+        guard let index = roster.firstIndex(where: { $0.id == member.id }) else { return }
+        roster[index] = member
+        save()
+    }
+
+    func removeMembers(_ ids: Set<UUID>) {
+        roster.removeAll { ids.contains($0.id) }
+        for id in ids {
+            resolutions[id] = nil
+            personData[id] = nil
+        }
+        save()
+    }
+
     func clearAll() {
         roster = []
         resolutions = [:]

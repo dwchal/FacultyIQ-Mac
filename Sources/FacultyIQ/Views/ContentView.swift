@@ -31,6 +31,7 @@ struct ContentView: View {
             List(SidebarItem.allCases, selection: $selection) { item in
                 Label(item.rawValue, systemImage: item.icon)
                     .badge(badge(for: item))
+                    .tag(item) // selection is SidebarItem?, so rows must tag the item, not its ID
             }
             .navigationSplitViewColumnWidth(min: 190, ideal: 210)
         } detail: {

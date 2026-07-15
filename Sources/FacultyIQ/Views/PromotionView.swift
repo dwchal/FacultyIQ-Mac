@@ -4,6 +4,7 @@ import SwiftUI
 /// the Shiny app's prediction module.
 struct PromotionView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var sortOrder: [KeyPathComparator<RankBenchmark>] = [] // empty = rank order
 
     var body: some View {
         if store.metrics.isEmpty {
@@ -29,17 +30,17 @@ struct PromotionView: View {
             Text("Median metrics within each academic rank in this roster.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Table(store.benchmarks) {
-                TableColumn("Rank") { Text($0.rank.label) }
-                TableColumn("Faculty") { Text("\($0.count)") }
+            Table(store.benchmarks.sorted(using: sortOrder), sortOrder: $sortOrder) {
+                TableColumn("Rank", value: \.rank) { Text($0.rank.label) }
+                TableColumn("Faculty", value: \.count) { Text("\($0.count)") }
                     .width(60)
-                TableColumn("Works") { Text(String(format: "%.0f", $0.medianWorks)) }
+                TableColumn("Works", value: \.medianWorks) { Text(String(format: "%.0f", $0.medianWorks)) }
                     .width(70)
-                TableColumn("Citations") { Text(String(format: "%.0f", $0.medianCitations)) }
+                TableColumn("Citations", value: \.medianCitations) { Text(String(format: "%.0f", $0.medianCitations)) }
                     .width(80)
-                TableColumn("h-index") { Text(String(format: "%.0f", $0.medianHIndex)) }
+                TableColumn("h-index", value: \.medianHIndex) { Text(String(format: "%.0f", $0.medianHIndex)) }
                     .width(70)
-                TableColumn("Works / Year") { Text(String(format: "%.2f", $0.medianWorksPerYear)) }
+                TableColumn("Works / Year", value: \.medianWorksPerYear) { Text(String(format: "%.2f", $0.medianWorksPerYear)) }
                     .width(90)
             }
             .frame(height: CGFloat(store.benchmarks.count) * 28 + 40)

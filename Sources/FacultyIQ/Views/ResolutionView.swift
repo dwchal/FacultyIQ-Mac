@@ -5,6 +5,33 @@ import SwiftUI
 struct ResolutionView: View {
     @EnvironmentObject private var store: AppStore
     @State private var searchTarget: FacultyMember?
+    @State private var sortOrder: [KeyPathComparator<ResolutionRow>] = [] // empty = roster order
+
+    /// Row model so store-derived columns (status, resolved author, data) are
+    /// sortable; TableColumn sort keys must live on the row type.
+    private struct ResolutionRow: Identifiable {
+        var member: FacultyMember
+        var idCount: Int          // available external IDs
+        var status: String        // resolution method; "" = unresolved
+        var resolvedName: String
+        var worksCount: Int       // -1 = not fetched
+
+        var id: UUID { member.id }
+        var name: String { member.name }
+    }
+
+    private var rows: [ResolutionRow] {
+        store.roster.map { member in
+            let res = store.resolution(for: member)
+            return ResolutionRow(
+                member: member,
+                idCount: (member.orcid != nil ? 1 : 0) + (member.scopusID != nil ? 1 : 0),
+                status: res?.method.rawValue ?? "",
+                resolvedName: res?.displayName ?? "",
+                worksCount: store.personData[member.id]?.works.count ?? -1)
+        }
+        .sorted(using: sortOrder)
+    }
 
     var body: some View {
         Group {
@@ -43,22 +70,22 @@ struct ResolutionView: View {
     }
 
     private var table: some View {
-        Table(store.roster) {
+        Table(rows, sortOrder: $sortOrder) {
             TableColumn("Name", value: \.name)
-            TableColumn("Available IDs") { member in
+            TableColumn("Available IDs", value: \.idCount) { row in
                 HStack(spacing: 4) {
-                    if member.orcid != nil { idBadge("ORCID") }
-                    if member.scopusID != nil { idBadge("Scopus") }
-                    if member.orcid == nil && member.scopusID == nil {
+                    if row.member.orcid != nil { idBadge("ORCID") }
+                    if row.member.scopusID != nil { idBadge("Scopus") }
+                    if row.member.orcid == nil && row.member.scopusID == nil {
                         Text("name only").font(.caption).foregroundStyle(.tertiary)
                     }
                 }
             }
-            TableColumn("Status") { member in
-                statusCell(member)
+            TableColumn("Status", value: \.status) { row in
+                statusCell(row.member)
             }
-            TableColumn("Resolved Author") { member in
-                if let res = store.resolution(for: member) {
+            TableColumn("Resolved Author", value: \.resolvedName) { row in
+                if let res = store.resolution(for: row.member) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(res.displayName)
                         if let aff = res.affiliation {
@@ -69,8 +96,8 @@ struct ResolutionView: View {
                     Text("—").foregroundStyle(.tertiary)
                 }
             }
-            TableColumn("Data") { member in
-                if let data = store.personData[member.id] {
+            TableColumn("Data", value: \.worksCount) { row in
+                if let data = store.personData[row.member.id] {
                     Text("\(data.works.count) works · \(data.fetchedAt.formatted(date: .abbreviated, time: .omitted))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -78,8 +105,8 @@ struct ResolutionView: View {
                     Text("not fetched").font(.caption).foregroundStyle(.tertiary)
                 }
             }
-            TableColumn("") { member in
-                actionButtons(member)
+            TableColumn("") { row in
+                actionButtons(row.member)
             }
             .width(150)
         }
@@ -134,6 +161,7 @@ struct AuthorSearchSheet: View {
     @State private var isSearching = false
     @State private var hasSearched = false
     @State private var selection: AuthorCandidate.ID?
+    @State private var sortOrder: [KeyPathComparator<AuthorCandidate>] = [] // empty = relevance order
 
     var body: some View {
         VStack(spacing: 0) {
@@ -159,16 +187,16 @@ struct AuthorSearchSheet: View {
                     .foregroundStyle(.secondary)
                 Spacer()
             } else {
-                Table(results, selection: $selection) {
+                Table(results.sorted(using: sortOrder), selection: $selection, sortOrder: $sortOrder) {
                     TableColumn("Author", value: \.displayName)
-                    TableColumn("Affiliation") { Text($0.affiliation ?? "—") }
-                    TableColumn("Works") { Text("\($0.worksCount)") }
+                    TableColumn("Affiliation", value: \.affiliationSort) { Text($0.affiliation ?? "—") }
+                    TableColumn("Works", value: \.worksCount) { Text("\($0.worksCount)") }
                         .width(55)
-                    TableColumn("Citations") { Text("\($0.citedByCount)") }
+                    TableColumn("Citations", value: \.citedByCount) { Text("\($0.citedByCount)") }
                         .width(70)
-                    TableColumn("h") { Text($0.hIndex.map(String.init) ?? "—") }
+                    TableColumn("h", value: \.hIndexSort) { Text($0.hIndex.map(String.init) ?? "—") }
                         .width(35)
-                    TableColumn("ORCID") { Text($0.orcid?.shortORCID ?? "—").font(.caption) }
+                    TableColumn("ORCID", value: \.orcidSort) { Text($0.orcid?.shortORCID ?? "—").font(.caption) }
                 }
             }
 
@@ -207,4 +235,11 @@ private extension String {
     var shortORCID: String {
         replacingOccurrences(of: "https://orcid.org/", with: "")
     }
+}
+
+// Sort keys for optional columns; missing values sort first ascending.
+private extension AuthorCandidate {
+    var affiliationSort: String { affiliation ?? "" }
+    var hIndexSort: Int { hIndex ?? -1 }
+    var orcidSort: String { orcid ?? "" }
 }

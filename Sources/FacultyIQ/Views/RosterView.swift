@@ -7,6 +7,7 @@ struct RosterView: View {
     @State private var confirmReplace = false
     @State private var selection: Set<FacultyMember.ID> = []
     @State private var editorTarget: EditorTarget?
+    @State private var sortOrder: [KeyPathComparator<FacultyMember>] = [] // empty = import order
 
     private enum EditorTarget: Identifiable {
         case new
@@ -95,23 +96,23 @@ struct RosterView: View {
         VStack(alignment: .leading, spacing: 0) {
             completenessHeader
             Divider()
-            Table(store.roster, selection: $selection) {
+            Table(store.roster.sorted(using: sortOrder), selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.name)
-                TableColumn("Rank") { Text($0.rank ?? "—") }
-                TableColumn("Hired") { Text($0.hireYear.map(String.init) ?? "—") }
+                TableColumn("Rank", value: \.rankSort) { Text($0.rank ?? "—") }
+                TableColumn("Hired", value: \.hireYearSort) { Text($0.hireYear.map(String.init) ?? "—") }
                     .width(60)
-                TableColumn("Last Promotion") { Text($0.lastPromotionYear.map(String.init) ?? "—") }
+                TableColumn("Last Promotion", value: \.promotionYearSort) { Text($0.lastPromotionYear.map(String.init) ?? "—") }
                     .width(100)
-                TableColumn("ORCID") { member in
+                TableColumn("ORCID", value: \.orcidSort) { member in
                     idCell(member.orcid)
                 }
-                TableColumn("Scopus ID") { member in
+                TableColumn("Scopus ID", value: \.scopusSort) { member in
                     idCell(member.scopusID)
                 }
-                TableColumn("Scholar ID") { member in
+                TableColumn("Scholar ID", value: \.scholarSort) { member in
                     idCell(member.scholarID)
                 }
-                TableColumn("Associations") { Text($0.associations ?? "—") }
+                TableColumn("Associations", value: \.associationsSort) { Text($0.associations ?? "—") }
             }
             .contextMenu(forSelectionType: FacultyMember.ID.self) { ids in
                 if ids.count == 1 {
@@ -156,4 +157,15 @@ struct RosterView: View {
             Text(label).font(.caption).foregroundStyle(.secondary)
         }
     }
+}
+
+// Sort keys for optional columns; missing values sort first ascending.
+private extension FacultyMember {
+    var rankSort: String { rank ?? "" }
+    var hireYearSort: Int { hireYear ?? 0 }
+    var promotionYearSort: Int { lastPromotionYear ?? 0 }
+    var orcidSort: String { orcid ?? "" }
+    var scopusSort: String { scopusID ?? "" }
+    var scholarSort: String { scholarID ?? "" }
+    var associationsSort: String { associations ?? "" }
 }

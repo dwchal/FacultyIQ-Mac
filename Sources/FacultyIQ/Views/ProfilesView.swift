@@ -59,6 +59,7 @@ private struct ProfileDetail: View {
     let data: PersonData
     let resolution: Resolution?
     let metrics: PersonMetrics
+    @State private var worksSort = [KeyPathComparator(\Work.citedByCount, order: .reverse)]
 
     var body: some View {
         ScrollView {
@@ -130,13 +131,9 @@ private struct ProfileDetail: View {
         return VStack(alignment: .leading, spacing: 10) {
             Text("Publications per Year").font(.headline)
             Chart(series, id: \.key) { year, count in
-                BarMark(
-                    x: .value("Year", year),
-                    y: .value("Works", count),
-                    width: .ratio(0.7)
-                )
-                .foregroundStyle(ChartPalette.series1)
-                .cornerRadius(2)
+                yearColumn(year: year, label: "Works", value: Double(count))
+                    .foregroundStyle(ChartPalette.series1)
+                    .cornerRadius(2)
             }
             .yearXAxis(years: series.map(\.key))
             .frame(height: 180)
@@ -147,10 +144,11 @@ private struct ProfileDetail: View {
 
     private var topWorks: some View {
         let top = Array(data.works.sorted { $0.citedByCount > $1.citedByCount }.prefix(15))
+            .sorted(using: worksSort)
         return VStack(alignment: .leading, spacing: 10) {
             Text("Most-Cited Works").font(.headline)
-            Table(top) {
-                TableColumn("Title") { work in
+            Table(top, sortOrder: $worksSort) {
+                TableColumn("Title", value: \.title) { work in
                     if let doi = work.doi, let url = URL(string: doi) {
                         Link(work.title, destination: url)
                             .foregroundStyle(.primary)
@@ -158,13 +156,13 @@ private struct ProfileDetail: View {
                         Text(work.title)
                     }
                 }
-                TableColumn("Year") { Text($0.year.map(String.init) ?? "—") }
+                TableColumn("Year", value: \.yearSort) { Text($0.year.map(String.init) ?? "—") }
                     .width(45)
-                TableColumn("Venue") { Text($0.venue ?? "—") }
+                TableColumn("Venue", value: \.venueSort) { Text($0.venue ?? "—") }
                     .width(min: 100, ideal: 180)
-                TableColumn("Citations") { Text("\($0.citedByCount)") }
+                TableColumn("Citations", value: \.citedByCount) { Text("\($0.citedByCount)") }
                     .width(60)
-                TableColumn("OA") { work in
+                TableColumn("OA", value: \.oaSort) { work in
                     if work.isOA == true {
                         Text(work.oaStatus ?? "open")
                             .font(.caption)
@@ -178,4 +176,10 @@ private struct ProfileDetail: View {
             .frame(height: 360)
         }
     }
+}
+
+private extension Work {
+    var yearSort: Int { year ?? 0 }
+    var venueSort: String { venue ?? "" }
+    var oaSort: String { isOA == true ? (oaStatus ?? "open") : "" }
 }

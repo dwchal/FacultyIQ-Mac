@@ -12,8 +12,9 @@ individual profiles, coauthorship networks, and promotion insights.
 - **Roster import** — CSV with flexible header matching (handles survey-style
   headers like *"What is your current academic rank?"*). Columns: name
   (required), email, rank, division/department, hire/promotion dates, Scopus
-  ID, Google Scholar ID, ORCID, associations. A built-in sample roster is
-  included, and members can also be added or edited one at a time.
+  ID, Google Scholar ID, ORCID, Semantic Scholar ID, associations. A built-in
+  sample roster is included, and members can also be added or edited one at a
+  time.
 - **Identity resolution** — auto-resolve via ORCID or Scopus ID against
   OpenAlex, with a manual name-search picker (affiliation, works, citations,
   h-index shown per candidate) for the rest.
@@ -88,12 +89,13 @@ Or open `Package.swift` in Xcode and run the FacultyIQ scheme.
 ## Tests
 
 ```bash
-swift test                    # unit tests (CSV, roster mapping, metrics, network)
-FACULTYIQ_LIVE=1 swift test   # + live OpenAlex API integration tests
+swift test                    # unit tests (CSV, roster mapping, metrics, trends, network, PDF)
+FACULTYIQ_LIVE=1 swift test   # + live API tests (OpenAlex, iCite, RePORTER, Semantic Scholar)
 ```
 
-Opt-in render tests write charts/graphs to PNG for visual inspection, e.g.
-`RENDER_OUT=/tmp/net.png swift test --filter NetworkRenderTest`.
+Opt-in render tests write charts/graphs to PNG (and the report pages to PDF)
+for visual inspection, e.g. `RENDER_OUT=/tmp/net.png swift test --filter
+NetworkRenderTest` or `RENDER_OUT=/tmp swift test --filter PDFRenderTest`.
 
 ## Usage
 

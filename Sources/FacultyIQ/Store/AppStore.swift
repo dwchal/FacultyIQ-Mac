@@ -39,8 +39,25 @@ final class AppStore: ObservableObject {
         MetricsEngine.promotionCandidates(metrics: metrics, benchmarks: benchmarks)
     }
 
+    var coauthorNetwork: CoauthorNetwork {
+        MetricsEngine.coauthorNetwork(
+            roster: roster, resolutions: resolutions, personData: personData)
+    }
+
     func resolution(for member: FacultyMember) -> Resolution? {
         resolutions[member.id]
+    }
+
+    /// Members whose data the next refreshData() call would bring up to date:
+    /// unresolved with an ORCID/Scopus ID, or resolved but not yet fetched.
+    var pendingRefreshCount: Int {
+        roster.count { member in
+            if resolutions[member.id] == nil {
+                member.orcid != nil || member.scopusID != nil
+            } else {
+                personData[member.id] == nil
+            }
+        }
     }
 
     // MARK: Roster
@@ -75,7 +92,14 @@ final class AppStore: ObservableObject {
 
     func updateMember(_ member: FacultyMember) {
         guard let index = roster.firstIndex(where: { $0.id == member.id }) else { return }
+        let old = roster[index]
         roster[index] = member
+        // A changed ORCID or Scopus ID means the member may resolve to a
+        // different author, so the old resolution and data no longer apply.
+        if old.orcid != member.orcid || old.scopusID != member.scopusID {
+            resolutions[member.id] = nil
+            personData[member.id] = nil
+        }
         save()
     }
 
@@ -122,6 +146,10 @@ final class AppStore: ObservableObject {
     }
 
     func resolve(_ member: FacultyMember, with candidate: AuthorCandidate, method: ResolutionMethod) {
+        // Data fetched for a previously resolved author doesn't carry over.
+        if resolutions[member.id]?.openalexID != candidate.openalexID {
+            personData[member.id] = nil
+        }
         resolutions[member.id] = Resolution(
             openalexID: candidate.openalexID,
             displayName: candidate.displayName,
@@ -148,6 +176,13 @@ final class AppStore: ObservableObject {
     }
 
     // MARK: Fetch
+
+    /// Catch up after roster or resolution edits: auto-resolve members that
+    /// gained an ORCID/Scopus ID, then fetch data for anyone missing it.
+    func refreshData() async {
+        await autoResolveAll()
+        await fetchAll()
+    }
 
     /// Fetch profile + works for every resolved member without data.
     func fetchAll(refresh: Bool = false) async {

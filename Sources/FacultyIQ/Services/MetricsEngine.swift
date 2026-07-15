@@ -136,6 +136,75 @@ enum MetricsEngine {
         return Array(all.sorted { $0.citedByCount > $1.citedByCount }.prefix(n))
     }
 
+    // MARK: Coauthorship network
+
+    /// Pairwise coauthorship between resolved roster members. A shared work is
+    /// detected two ways: it appears in both members' works lists (which also
+    /// covers data fetched before authorships were tracked), or a member's
+    /// resolved OpenAlex ID appears in another member's work.authors (which
+    /// recovers works cut off by the per-author fetch limit).
+    static func coauthorNetwork(roster: [FacultyMember],
+                                resolutions: [UUID: Resolution],
+                                personData: [UUID: PersonData]) -> CoauthorNetwork {
+        let eligible = roster.filter { resolutions[$0.id] != nil && personData[$0.id] != nil }
+        let authorToMember = Dictionary(
+            eligible.map { (resolutions[$0.id]!.openalexID, $0.id) },
+            uniquingKeysWith: { first, _ in first })
+
+        var membersPerWork: [String: Set<UUID>] = [:]
+        var staleAuthorData = false
+        for member in eligible {
+            let works = personData[member.id]!.works
+            if !works.isEmpty, works.allSatisfy({ $0.authors == nil }) {
+                staleAuthorData = true
+            }
+            for work in works {
+                membersPerWork[work.id, default: []].insert(member.id)
+                for author in work.authors ?? [] {
+                    if let coauthor = authorToMember[author.openalexID] {
+                        membersPerWork[work.id, default: []].insert(coauthor)
+                    }
+                }
+            }
+        }
+
+        var pairCounts: [String: (a: UUID, b: UUID, count: Int)] = [:]
+        for members in membersPerWork.values where members.count >= 2 {
+            let sorted = members.sorted { $0.uuidString < $1.uuidString }
+            for i in sorted.indices {
+                for j in sorted.indices where j > i {
+                    let key = "\(sorted[i].uuidString)|\(sorted[j].uuidString)"
+                    let existing = pairCounts[key]?.count ?? 0
+                    pairCounts[key] = (sorted[i], sorted[j], existing + 1)
+                }
+            }
+        }
+        let edges = pairCounts.values
+            .map { CoauthorEdge(memberA: $0.a, memberB: $0.b, weight: $0.count) }
+            .sorted { ($0.weight, $1.id) > ($1.weight, $0.id) }
+
+        var degree: [UUID: Int] = [:]
+        var sharedWorks: [UUID: Int] = [:]
+        for edge in edges {
+            for member in [edge.memberA, edge.memberB] {
+                degree[member, default: 0] += 1
+                sharedWorks[member, default: 0] += edge.weight
+            }
+        }
+        let nodes = eligible
+            .map { member in
+                CoauthorNode(
+                    memberID: member.id,
+                    name: member.name,
+                    worksCount: personData[member.id]!.works.count,
+                    degree: degree[member.id] ?? 0,
+                    sharedWorks: sharedWorks[member.id] ?? 0)
+            }
+            .sorted { $0.name < $1.name }
+
+        return CoauthorNetwork(nodes: nodes, edges: edges, staleAuthorData: staleAuthorData)
+    }
+
     // MARK: Rank benchmarks & promotion insight
 
     static func rankBenchmarks(metrics: [PersonMetrics]) -> [RankBenchmark] {
@@ -218,6 +287,19 @@ enum MetricsEngine {
                     String(citesByYear[year] ?? 0),
                 ].joined(separator: ","))
             }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func coauthorshipCSV(network: CoauthorNetwork) -> String {
+        let nameByID = Dictionary(uniqueKeysWithValues: network.nodes.map { ($0.memberID, $0.name) })
+        var lines = ["Member A,Member B,Shared Works"]
+        for edge in network.edges {
+            lines.append([
+                csvEscape(nameByID[edge.memberA] ?? ""),
+                csvEscape(nameByID[edge.memberB] ?? ""),
+                String(edge.weight),
+            ].joined(separator: ","))
         }
         return lines.joined(separator: "\n") + "\n"
     }

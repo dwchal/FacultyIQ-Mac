@@ -67,7 +67,7 @@ actor OpenAlexClient {
     func works(authorID: String, limit: Int = 2000) async throws -> [Work] {
         var works: [Work] = []
         var cursor: String? = "*"
-        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,open_access,primary_location"
+        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,open_access,primary_location,authorships"
 
         while let c = cursor, works.count < limit {
             let url = endpoint("works", query: [
@@ -210,6 +210,13 @@ private struct OAWork: Decodable {
         }
         var source: Source?
     }
+    struct Authorship: Decodable {
+        struct Author: Decodable {
+            var id: String?
+            var displayName: String?
+        }
+        var author: Author?
+    }
 
     var id: String
     var displayName: String?
@@ -220,6 +227,7 @@ private struct OAWork: Decodable {
     var doi: String?
     var openAccess: OpenAccess?
     var primaryLocation: Location?
+    var authorships: [Authorship]?
 
     var work: Work {
         Work(
@@ -232,7 +240,15 @@ private struct OAWork: Decodable {
             doi: doi,
             isOA: openAccess?.isOa,
             oaStatus: openAccess?.oaStatus,
-            venue: primaryLocation?.source?.displayName
+            venue: primaryLocation?.source?.displayName,
+            authors: authorships.map { list in
+                list.compactMap { entry in
+                    guard let authorID = entry.author?.id else { return nil }
+                    return WorkAuthor(
+                        openalexID: authorID.shortOpenAlexID,
+                        displayName: entry.author?.displayName ?? "")
+                }
+            }
         )
     }
 }

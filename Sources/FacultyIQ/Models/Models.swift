@@ -115,6 +115,12 @@ struct Work: Identifiable, Codable, Hashable {
     var isOA: Bool?
     var oaStatus: String?
     var venue: String?
+    var authors: [WorkAuthor]?   // nil = fetched before authorships were tracked
+}
+
+struct WorkAuthor: Codable, Hashable {
+    var openalexID: String       // short form, e.g. "A5070446713"
+    var displayName: String
 }
 
 struct PersonData: Codable, Hashable {
@@ -163,6 +169,40 @@ struct RankBenchmark: Identifiable {
     var medianWorksPerYear: Double
 
     var id: Int { rank.rawValue }
+}
+
+/// One pair of roster members with shared publications. Members are ordered
+/// canonically (memberA.uuidString < memberB.uuidString) so each pair appears once.
+struct CoauthorEdge: Identifiable, Hashable {
+    var memberA: UUID
+    var memberB: UUID
+    var weight: Int              // number of distinct shared works
+
+    var id: String { "\(memberA.uuidString)|\(memberB.uuidString)" }
+
+    func involves(_ member: UUID) -> Bool { memberA == member || memberB == member }
+
+    func other(than member: UUID) -> UUID? {
+        if memberA == member { return memberB }
+        if memberB == member { return memberA }
+        return nil
+    }
+}
+
+struct CoauthorNode: Identifiable, Hashable {
+    var memberID: UUID
+    var name: String
+    var worksCount: Int          // works fetched for this member
+    var degree: Int              // distinct roster coauthors
+    var sharedWorks: Int         // sum of edge weights touching this node
+
+    var id: UUID { memberID }
+}
+
+struct CoauthorNetwork {
+    var nodes: [CoauthorNode]    // resolved + fetched members, sorted by name
+    var edges: [CoauthorEdge]    // sorted by weight desc, then id
+    var staleAuthorData: Bool    // some member's works predate authorship tracking
 }
 
 struct PromotionCandidate: Identifiable {

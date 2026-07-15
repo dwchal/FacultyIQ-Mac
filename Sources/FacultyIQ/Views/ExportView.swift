@@ -26,6 +26,14 @@ struct ExportView: View {
                     MetricsEngine.yearlyCSV(roster: store.roster, personData: store.personData)
                 }
                 exportRow(
+                    "Coauthorship Edges",
+                    detail: "One row per pair of roster members with shared publications.",
+                    filename: "coauthorship_edges.csv",
+                    disabled: store.coauthorNetwork.edges.isEmpty
+                ) {
+                    MetricsEngine.coauthorshipCSV(network: store.coauthorNetwork)
+                }
+                exportRow(
                     "Roster with Resolutions",
                     detail: "The imported roster plus each member's resolved OpenAlex ID.",
                     filename: "roster_resolved.csv",

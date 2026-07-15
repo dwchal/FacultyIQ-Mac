@@ -6,6 +6,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case profiles = "Faculty Profiles"
     case promotion = "Promotion Insights"
+    case network = "Network"
     case export = "Export"
 
     var id: String { rawValue }
@@ -17,6 +18,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .dashboard: "chart.bar.xaxis"
         case .profiles: "person.text.rectangle"
         case .promotion: "arrow.up.right.circle"
+        case .network: "point.3.connected.trianglepath.dotted"
         case .export: "square.and.arrow.up"
         }
     }
@@ -37,6 +39,11 @@ struct ContentView: View {
         } detail: {
             detailView
                 .navigationTitle(selection?.rawValue ?? "FacultyIQ")
+                .toolbar {
+                    if showsRefresh {
+                        RefreshDataToolbar(store: store)
+                    }
+                }
         }
         .safeAreaInset(edge: .bottom) {
             if store.isBusy {
@@ -58,7 +65,17 @@ struct ContentView: View {
         case .dashboard: DashboardView()
         case .profiles: ProfilesView()
         case .promotion: PromotionView()
+        case .network: NetworkView()
         case .export: ExportView()
+        }
+    }
+
+    /// Data tabs get the shared refresh button; Roster and Resolution manage
+    /// their own workflow toolbars.
+    private var showsRefresh: Bool {
+        switch selection ?? .roster {
+        case .dashboard, .profiles, .promotion, .network, .export: true
+        case .roster, .resolution: false
         }
     }
 

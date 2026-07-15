@@ -29,6 +29,11 @@ final class OpenAlexIntegrationTests: XCTestCase {
         let works = try await OpenAlexClient.shared.works(authorID: resolved.openalexID)
         XCTAssertFalse(works.isEmpty)
         XCTAssertNotNil(works.first?.title)
+
+        // Authorships come back and include the author we asked for.
+        XCTAssertTrue(works.contains { work in
+            (work.authors ?? []).contains { $0.openalexID == resolved.openalexID }
+        })
     }
 
     func testUnknownORCIDReturnsNil() async throws {

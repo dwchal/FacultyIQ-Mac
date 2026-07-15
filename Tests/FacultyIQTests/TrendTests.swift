@@ -47,6 +47,20 @@ final class TrendTests: XCTestCase {
         XCTAssertTrue((0...1).contains(MetricsEngine.currentYearFraction))
     }
 
+    func testDivisionTrendSumsAcrossCohort() throws {
+        // Two people, each 1 work/yr in the prior window; person B doubles
+        // output in the recent window. Cohort: prior 6, recent 9 → +50%
+        // at a fully elapsed year.
+        let a = personData(workYears: [year - 5, year - 4, year - 3,
+                                       year - 2, year - 1, year])
+        let b = personData(workYears: [year - 5, year - 4, year - 3,
+                                       year - 2, year - 2, year - 1, year - 1, year, year])
+        let trend = MetricsEngine.divisionTrend(personData: [a, b], currentYearFraction: 1)
+        XCTAssertEqual(trend.priorWorks, 6)
+        XCTAssertEqual(trend.recentWorks, 9)
+        XCTAssertEqual(try XCTUnwrap(trend.worksGrowth), 50, accuracy: 1e-9)
+    }
+
     func testTrendGrowthNilWhenPriorWindowEmpty() {
         let data = personData(workYears: [year, year - 1])
         let trend = MetricsEngine.trendMetrics(data: data, currentYearFraction: 0.5)

@@ -38,6 +38,27 @@ extension MetricsEngine {
     /// years, not 3 (`currentYearFraction` is injectable for tests).
     static func trendMetrics(data: PersonData,
                              currentYearFraction: Double? = nil) -> TrendMetrics {
+        trendMetrics(works: worksByYear(data), cites: citationsByYear(data),
+                     currentYearFraction: currentYearFraction)
+    }
+
+    /// Cohort-level trend: per-year works and citations summed across
+    /// everyone in view (matching the dashboard charts, which also count a
+    /// coauthored work once per member).
+    static func divisionTrend(personData: [PersonData],
+                              currentYearFraction: Double? = nil) -> TrendMetrics {
+        var works: [Int: Int] = [:]
+        var cites: [Int: Int] = [:]
+        for data in personData {
+            for (year, count) in worksByYear(data) { works[year, default: 0] += count }
+            for (year, count) in citationsByYear(data) { cites[year, default: 0] += count }
+        }
+        return trendMetrics(works: works, cites: cites, currentYearFraction: currentYearFraction)
+    }
+
+    private static func trendMetrics(works: [Int: Int],
+                                     cites: [Int: Int],
+                                     currentYearFraction: Double?) -> TrendMetrics {
         let y = currentYear
         let fraction = (currentYearFraction ?? self.currentYearFraction).clamped(to: 0...1)
         let recentSpan = 2 + fraction
@@ -52,8 +73,6 @@ extension MetricsEngine {
             let priorRate = Double(prior) / 3
             return 100 * (recentRate - priorRate) / priorRate
         }
-        let works = worksByYear(data)
-        let cites = citationsByYear(data)
         let recentWorks = sum(works, recentYears)
         let priorWorks = sum(works, priorYears)
         let recentCitations = sum(cites, recentYears)

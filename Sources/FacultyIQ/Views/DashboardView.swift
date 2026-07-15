@@ -70,13 +70,17 @@ struct DashboardView: View {
     // MARK: Charts
 
     private var worksChart: some View {
-        chartCard("Publications per Year", subtitle: "All indexed works across the division") {
+        let trend = MetricsEngine.divisionTrend(personData: fetched)
+        return chartCard("Publications per Year", subtitle: "All indexed works across the division",
+                         trend: trend, growth: trend.worksGrowth) {
             WorksPerYearChart(data: MetricsEngine.worksPerYear(personData: fetched))
         }
     }
 
     private var citationsChart: some View {
-        chartCard("Citations Received per Year", subtitle: "Last decade (OpenAlex counts)") {
+        let trend = MetricsEngine.divisionTrend(personData: fetched)
+        return chartCard("Citations Received per Year", subtitle: "Last decade (OpenAlex counts)",
+                         trend: trend, growth: trend.citationsGrowth) {
             CitationsPerYearChart(data: MetricsEngine.citationsPerYear(personData: fetched))
         }
     }
@@ -93,11 +97,19 @@ struct DashboardView: View {
         }
     }
 
-    private func chartCard(_ title: String, subtitle: String, @ViewBuilder content: () -> some View) -> some View {
+    private func chartCard(_ title: String, subtitle: String,
+                           trend: TrendMetrics? = nil, growth: Double? = nil,
+                           @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline)
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let trend, let growth {
+                    growthBadge(growth, trend: trend)
+                }
             }
             content()
                 .frame(height: 220)
@@ -105,5 +117,25 @@ struct DashboardView: View {
         .padding(16)
         .frame(maxWidth: .infinity)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Annualized 3y-vs-3y growth for the cohort in view, current year pro-rated.
+    private func growthBadge(_ growth: Double, trend: TrendMetrics) -> some View {
+        let color = growth >= 0 ? ChartPalette.positive : ChartPalette.critical
+        return HStack(spacing: 4) {
+            Image(systemName: growth >= 0 ? "arrow.up.right" : "arrow.down.right")
+                .font(.caption.weight(.bold))
+            Text(String(format: "%+.0f%%/yr", growth))
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.12), in: Capsule())
+        .help(String(format: "Annualized rate, %d–%d vs %d–%d; %d counts as %.0f%% of a year",
+                     trend.recentYears.lowerBound, trend.recentYears.upperBound,
+                     trend.priorYears.lowerBound, trend.priorYears.upperBound,
+                     MetricsEngine.currentYear, trend.currentYearFraction * 100))
     }
 }

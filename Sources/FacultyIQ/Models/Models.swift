@@ -113,6 +113,7 @@ struct Work: Identifiable, Codable, Hashable {
     var type: String?
     var citedByCount: Int
     var doi: String?
+    var pmid: String? = nil      // nil = not PubMed-indexed, or fetched before pmids were tracked
     var isOA: Bool?
     var oaStatus: String?
     var venue: String?
@@ -246,6 +247,38 @@ struct PromotionProgress: Identifiable {
         checks.map { min(Double($0.value) / max($0.benchmark, 1), 1) }.reduce(0, +)
     }
     var id: UUID { metrics.memberID }
+}
+
+// MARK: - Trends & prediction
+
+/// Recent-versus-prior activity comparison (last 3 calendar years vs the 3 before).
+struct TrendMetrics {
+    var recentYears: ClosedRange<Int>
+    var priorYears: ClosedRange<Int>
+    var recentWorks: Int
+    var priorWorks: Int
+    var recentCitations: Int
+    var priorCitations: Int
+    var worksGrowth: Double?      // percent change; nil when the prior window is 0
+    var citationsGrowth: Double?
+}
+
+/// Time-to-target estimate for one unmet promotion check at the current pace.
+struct TrajectoryProjection: Identifiable {
+    var label: String             // matches PromotionProgress.MetricCheck.label
+    var current: Int
+    var target: Double
+    var perYear: Double           // fitted pace (units per year)
+    var yearsToTarget: Double
+
+    var targetYear: Int { MetricsEngine.currentYear + Int(yearsToTarget.rounded(.up)) }
+    var id: String { label }
+}
+
+/// Nearest-rank prediction from the weighted rank-distance model.
+struct RankPrediction {
+    var rank: AcademicRank
+    var confidence: Double        // 0…1, 1 − d₁/d₂
 }
 
 // MARK: - Shared helpers

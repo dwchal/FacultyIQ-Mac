@@ -37,13 +37,20 @@ struct DashboardView: View {
 
     private var kpiRow: some View {
         let s = store.summary
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 6), spacing: 12) {
+        let medianRCR = MetricsEngine.medianRCR(
+            roster: store.filteredRoster, personData: store.personData, enrichment: store.enrichment)
+        let columns = medianRCR == nil ? 6 : 7
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns), spacing: 12) {
             kpi("Faculty", "\(s.facultyCount)")
             kpi("Resolved", "\(s.resolvedCount)")
             kpi("Total Works", s.totalWorks.formatted())
             kpi("Total Citations", s.totalCitations.formatted())
             kpi("Median h-index", String(format: "%.0f", s.medianHIndex))
             kpi("Open Access", s.oaPercent.map { String(format: "%.0f%%", $0) } ?? "—")
+            if let medianRCR {
+                kpi("Median RCR", String(format: "%.2f", medianRCR))
+                    .help("Median of each member's mean Relative Citation Ratio (NIH iCite)")
+            }
         }
     }
 
@@ -63,69 +70,26 @@ struct DashboardView: View {
     // MARK: Charts
 
     private var worksChart: some View {
-        let data = MetricsEngine.worksPerYear(personData: fetched)
-        return chartCard("Publications per Year", subtitle: "All indexed works across the division") {
-            Chart(data, id: \.year) { item in
-                yearColumn(year: item.year, label: "Works", value: Double(item.count))
-                    .foregroundStyle(ChartPalette.series1)
-                    .cornerRadius(2)
-            }
-            .yearXAxis(years: data.map(\.year))
+        chartCard("Publications per Year", subtitle: "All indexed works across the division") {
+            WorksPerYearChart(data: MetricsEngine.worksPerYear(personData: fetched))
         }
     }
 
     private var citationsChart: some View {
-        let data = MetricsEngine.citationsPerYear(personData: fetched)
-        return chartCard("Citations Received per Year", subtitle: "Last decade (OpenAlex counts)") {
-            Chart(data, id: \.year) { item in
-                LineMark(
-                    x: .value("Year", item.year),
-                    y: .value("Citations", item.count)
-                )
-                .foregroundStyle(ChartPalette.series1)
-                .lineStyle(StrokeStyle(lineWidth: 2))
-                PointMark(
-                    x: .value("Year", item.year),
-                    y: .value("Citations", item.count)
-                )
-                .foregroundStyle(ChartPalette.series1)
-                .symbolSize(36)
-            }
-            .yearXAxis(years: data.map(\.year))
+        chartCard("Citations Received per Year", subtitle: "Last decade (OpenAlex counts)") {
+            CitationsPerYearChart(data: MetricsEngine.citationsPerYear(personData: fetched))
         }
     }
 
     private var oaChart: some View {
-        let data = MetricsEngine.oaShareByYear(personData: fetched)
-        return chartCard("Open Access Share", subtitle: "% of works published open access, by year") {
-            Chart(data, id: \.year) { item in
-                yearColumn(year: item.year, label: "OA %", value: item.percent)
-                    .foregroundStyle(ChartPalette.series2)
-                    .cornerRadius(2)
-            }
-            .chartYScale(domain: 0...100)
-            .yearXAxis(years: data.map(\.year))
+        chartCard("Open Access Share", subtitle: "% of works published open access, by year") {
+            OAShareChart(data: MetricsEngine.oaShareByYear(personData: fetched))
         }
     }
 
     private var topFacultyChart: some View {
-        let top = store.metrics.sorted { $0.citations > $1.citations }.prefix(10)
-        return chartCard("Most-Cited Faculty", subtitle: "Total citations, top 10") {
-            Chart(Array(top)) { m in
-                BarMark(
-                    x: .value("Citations", m.citations),
-                    y: .value("Name", m.name),
-                    height: .ratio(0.7)
-                )
-                .foregroundStyle(ChartPalette.series1)
-                .cornerRadius(2)
-                .annotation(position: .trailing, spacing: 4) {
-                    Text(m.citations.formatted())
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .chartXAxis(.hidden)
+        chartCard("Most-Cited Faculty", subtitle: "Total citations, top 10") {
+            TopFacultyChart(metrics: Array(store.metrics.sorted { $0.citations > $1.citations }.prefix(10)))
         }
     }
 

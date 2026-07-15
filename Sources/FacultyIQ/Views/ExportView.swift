@@ -5,6 +5,11 @@ import UniformTypeIdentifiers
 struct ExportView: View {
     @EnvironmentObject private var store: AppStore
     @State private var confirmation: String?
+    @State private var dossierMemberID: UUID?
+
+    private var membersWithData: [FacultyMember] {
+        store.filteredRoster.filter { store.personData[$0.id] != nil }
+    }
 
     var body: some View {
         Form {
@@ -15,13 +20,14 @@ struct ExportView: View {
                     filename: "faculty_metrics.csv",
                     disabled: store.metrics.isEmpty
                 ) {
-                    MetricsEngine.metricsCSV(metrics: store.metrics, roster: store.filteredRoster)
+                    MetricsEngine.metricsCSV(metrics: store.metrics, roster: store.filteredRoster,
+                                             personData: store.personData, enrichment: store.enrichment)
                 }
                 exportRow(
                     "Yearly Time Series",
                     detail: "Long format: name × year × works published × citations received.",
                     filename: "faculty_yearly.csv",
-                    disabled: store.personData.isEmpty
+                    disabled: store.filteredPersonData.isEmpty
                 ) {
                     MetricsEngine.yearlyCSV(roster: store.filteredRoster, personData: store.personData)
                 }
@@ -41,12 +47,28 @@ struct ExportView: View {
                 ) {
                     rosterCSV()
                 }
+                exportRow(
+                    "NIH Grants",
+                    detail: "One row per NIH project attached via RePORTER: activity code, fiscal years, total award.",
+                    filename: "nih_grants.csv",
+                    disabled: !store.filteredRoster.contains {
+                        !(store.enrichment[$0.id]?.grants?.grants.isEmpty ?? true)
+                    }
+                ) {
+                    MetricsEngine.grantsCSV(roster: store.filteredRoster, enrichment: store.enrichment)
+                }
             } header: {
                 Text("Data Exports")
             } footer: {
                 if store.divisionFilter != nil {
                     Text("Exports include only the selected division; choose All Divisions in the toolbar to export everyone.")
                 }
+            }
+            Section {
+                summaryPDFRow
+                dossierPDFRow
+            } header: {
+                Text("PDF Reports")
             }
             if let confirmation {
                 Section {
@@ -56,6 +78,79 @@ struct ExportView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            if dossierMemberID == nil { dossierMemberID = membersWithData.first?.id }
+        }
+    }
+
+    // MARK: PDF reports
+
+    private var summaryPDFRow: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Division Summary")
+                Text("KPIs, publication and citation trends, open-access share, most-cited faculty, and rank benchmarks.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Save as PDF…") {
+                let scope = store.divisionFilter
+                save(defaultName: "\(sanitize(scope ?? "faculty"))_report.pdf", type: .pdf) { url in
+                    try PDFComposer.write(
+                        pages: SummaryPages.pages(
+                            summary: store.summary,
+                            metrics: store.metrics,
+                            personData: store.filteredPersonData,
+                            benchmarks: store.benchmarks,
+                            divisionName: scope),
+                        to: url)
+                }
+            }
+            .disabled(store.filteredPersonData.isEmpty)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var dossierPDFRow: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Promotion Dossier")
+                Text("One member's metrics, promotion readiness, publication trend, and most-cited works.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Picker("Member", selection: $dossierMemberID) {
+                ForEach(membersWithData) { member in
+                    Text(member.name).tag(Optional(member.id))
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 200)
+            Button("Save as PDF…") {
+                guard let member = membersWithData.first(where: { $0.id == dossierMemberID }),
+                      let data = store.personData[member.id] else { return }
+                save(defaultName: "\(sanitize(member.name))_dossier.pdf", type: .pdf) { url in
+                    try PDFComposer.write(
+                        pages: DossierPages.pages(
+                            member: member,
+                            data: data,
+                            resolution: store.resolution(for: member),
+                            metrics: MetricsEngine.personMetrics(member: member, data: data),
+                            promotion: store.promotionProgress.first { $0.id == member.id },
+                            enrichment: store.enrichment[member.id]),
+                        to: url)
+                }
+            }
+            .disabled(dossierMemberID == nil || !membersWithData.contains { $0.id == dossierMemberID })
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func sanitize(_ name: String) -> String {
+        name.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "_")
     }
 
     private func exportRow(_ title: String, detail: String, filename: String,
@@ -75,12 +170,18 @@ struct ExportView: View {
     }
 
     private func saveCSV(defaultName: String, content: String) {
+        save(defaultName: defaultName, type: .commaSeparatedText) { url in
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func save(defaultName: String, type: UTType, write: (URL) throws -> Void) {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.allowedContentTypes = [type]
         panel.nameFieldStringValue = defaultName
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try content.write(to: url, atomically: true, encoding: .utf8)
+            try write(url)
             confirmation = "Saved \(url.lastPathComponent)"
         } catch {
             store.lastError = error.localizedDescription

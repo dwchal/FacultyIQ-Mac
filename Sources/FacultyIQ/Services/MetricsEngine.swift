@@ -265,12 +265,20 @@ enum MetricsEngine {
 
     // MARK: Export
 
-    static func metricsCSV(metrics: [PersonMetrics], roster: [FacultyMember]) -> String {
+    static func metricsCSV(metrics: [PersonMetrics],
+                           roster: [FacultyMember],
+                           personData: [UUID: PersonData] = [:],
+                           enrichment: [UUID: Enrichment] = [:]) -> String {
         let byID = Dictionary(uniqueKeysWithValues: roster.map { ($0.id, $0) })
-        var lines = ["Name,Rank,Division,Works,Citations,h-index,i10-index,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,ORCID,Scopus ID"]
+        var lines = ["Name,Rank,Division,Works,Citations,h-index,i10-index,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,ORCID,Scopus ID"]
         for m in metrics.sorted(by: { $0.name < $1.name }) {
             let member = byID[m.memberID]
-            let fields = [
+            let rcr: Double? = personData[m.memberID].flatMap {
+                meanRCR(works: $0.works, icite: enrichment[m.memberID]?.icite)
+            }
+            let grants: [Grant]? = enrichment[m.memberID]?.grants?.grants
+            let totalFunding: Int? = grants.map { $0.map(\.totalAward).reduce(0, +) }
+            var fields: [String] = [
                 m.name,
                 m.rawRank ?? "",
                 member?.division ?? "",
@@ -280,10 +288,15 @@ enum MetricsEngine {
                 String(m.i10Index),
                 String(format: "%.1f", m.citationsPerWork),
                 String(format: "%.2f", m.worksPerYear),
+            ]
+            fields += [
                 m.oaPercent.map { String(format: "%.0f", $0) } ?? "",
                 String(m.recentWorks5y),
                 m.firstPubYear.map(String.init) ?? "",
                 String(m.careerYears),
+                rcr.map { String(format: "%.2f", $0) } ?? "",
+                grants.map { String($0.count) } ?? "",
+                totalFunding.map(String.init) ?? "",
                 member?.orcid ?? "",
                 member?.scopusID ?? "",
             ]

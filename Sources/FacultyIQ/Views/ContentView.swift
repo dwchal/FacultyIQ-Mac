@@ -42,6 +42,7 @@ struct ContentView: View {
                 .toolbar {
                     if showsRefresh {
                         DivisionFilterToolbar(store: store)
+                        EnrichDataToolbar(store: store)
                         RefreshDataToolbar(store: store)
                     }
                 }

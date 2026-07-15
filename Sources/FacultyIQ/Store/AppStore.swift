@@ -8,6 +8,7 @@ final class AppStore: ObservableObject {
     @Published var roster: [FacultyMember] = []
     @Published var resolutions: [UUID: Resolution] = [:]
     @Published var personData: [UUID: PersonData] = [:]
+    @Published var enrichment: [UUID: Enrichment] = [:]
 
     /// Restricts every analysis tab (dashboard, profiles, promotion, network,
     /// export) to one division; nil shows everyone. Session-only, not persisted.
@@ -106,6 +107,7 @@ final class AppStore: ObservableObject {
         // Keep resolutions/data only makes sense per-roster; new roster resets them.
         resolutions = [:]
         personData = [:]
+        enrichment = [:]
         divisionFilter = nil
         lastError = nil
         save()
@@ -125,6 +127,7 @@ final class AppStore: ObservableObject {
         if old.orcid != member.orcid || old.scopusID != member.scopusID {
             resolutions[member.id] = nil
             personData[member.id] = nil
+            enrichment[member.id] = nil
         }
         save()
     }
@@ -134,6 +137,7 @@ final class AppStore: ObservableObject {
         for id in ids {
             resolutions[id] = nil
             personData[id] = nil
+            enrichment[id] = nil
         }
         save()
     }
@@ -142,6 +146,7 @@ final class AppStore: ObservableObject {
         roster = []
         resolutions = [:]
         personData = [:]
+        enrichment = [:]
         divisionFilter = nil
         save()
     }
@@ -176,6 +181,7 @@ final class AppStore: ObservableObject {
         // Data fetched for a previously resolved author doesn't carry over.
         if resolutions[member.id]?.openalexID != candidate.openalexID {
             personData[member.id] = nil
+            enrichment[member.id] = nil
         }
         resolutions[member.id] = Resolution(
             openalexID: candidate.openalexID,
@@ -190,6 +196,7 @@ final class AppStore: ObservableObject {
     func unresolve(_ member: FacultyMember) {
         resolutions[member.id] = nil
         personData[member.id] = nil
+        enrichment[member.id] = nil
         save()
     }
 
@@ -230,6 +237,113 @@ final class AppStore: ObservableObject {
         save()
     }
 
+    // MARK: Enrichment
+
+    /// Which enrichment sources the user has switched on in Settings.
+    var enabledEnrichmentSources: (icite: Bool, reporter: Bool, semanticScholar: Bool) {
+        let defaults = UserDefaults.standard
+        return (defaults.bool(forKey: "enableICite"),
+                defaults.bool(forKey: "enableReporter"),
+                defaults.bool(forKey: "enableSemanticScholar"))
+    }
+
+    var anyEnrichmentEnabled: Bool {
+        let sources = enabledEnrichmentSources
+        return sources.icite || sources.reporter || sources.semanticScholar
+    }
+
+    /// Opt-in second phase after the OpenAlex fetch: pull iCite citation
+    /// metrics, NIH grants, and Semantic Scholar stats for every member with
+    /// data, per the Settings toggles. Skips members already enriched unless
+    /// `refresh` is set.
+    func enrichAll(refresh: Bool = false) async {
+        let sources = enabledEnrichmentSources
+        let members = roster.filter { personData[$0.id] != nil }
+        guard anyEnrichmentEnabled, !members.isEmpty else { return }
+
+        if sources.icite {
+            let pending = members.filter { refresh || enrichment[$0.id]?.icite == nil }
+            await runBatch(label: "Enriching (iCite)", items: pending) { member in
+                try await self.enrichICite(member)
+            }
+        }
+        if sources.reporter {
+            let pending = members.filter { refresh || enrichment[$0.id]?.grants == nil }
+            await runBatch(label: "Enriching (NIH RePORTER)", items: pending) { member in
+                try await self.enrichReporter(member)
+            }
+        }
+        if sources.semanticScholar {
+            let pending = members.filter { refresh || enrichment[$0.id]?.semanticScholar == nil }
+            await runBatch(label: "Enriching (Semantic Scholar)", items: pending) { member in
+                try await self.enrichSemanticScholar(member)
+            }
+        }
+    }
+
+    private func enrichICite(_ member: FacultyMember) async throws {
+        guard let data = personData[member.id] else { return }
+        let pmids = data.works.compactMap(\.pmid)
+        guard !pmids.isEmpty else { return }   // pre-pmid cache or nothing PubMed-indexed
+        let metrics = try await ICiteClient.shared.metrics(pmids: pmids)
+        var entry = enrichment[member.id] ?? Enrichment()
+        entry.icite = ICiteData(
+            byPMID: Dictionary(metrics.map { ($0.pmid, $0) }, uniquingKeysWith: { first, _ in first }),
+            fetchedAt: Date())
+        enrichment[member.id] = entry
+        save()
+    }
+
+    /// Auto-attaches grants only when the PI is already confirmed or the name
+    /// search finds exactly one profile; ambiguous names stay unattached until
+    /// the user confirms via the profile's Find Grants sheet.
+    private func enrichReporter(_ member: FacultyMember) async throws {
+        if let confirmed = enrichment[member.id]?.grants?.confirmedProfileID {
+            let candidate = PICandidate(
+                profileID: confirmed,
+                name: enrichment[member.id]?.grants?.confirmedPIName ?? member.name,
+                orgName: nil, projectCount: 0, latestFiscalYear: nil)
+            try await attachGrants(member, candidate: candidate)
+            return
+        }
+        let candidates = try await ReporterClient.shared.searchPIs(name: member.name)
+        if candidates.count == 1 {
+            try await attachGrants(member, candidate: candidates[0])
+        }
+    }
+
+    func searchPIs(name: String) async -> [PICandidate] {
+        do {
+            return try await ReporterClient.shared.searchPIs(name: name)
+        } catch {
+            lastError = error.localizedDescription
+            return []
+        }
+    }
+
+    func attachGrants(_ member: FacultyMember, candidate: PICandidate) async throws {
+        let grants = try await ReporterClient.shared.projects(profileID: candidate.profileID)
+        var entry = enrichment[member.id] ?? Enrichment()
+        entry.grants = GrantData(
+            grants: grants,
+            confirmedProfileID: candidate.profileID,
+            confirmedPIName: candidate.name,
+            fetchedAt: Date())
+        enrichment[member.id] = entry
+        save()
+    }
+
+    private func enrichSemanticScholar(_ member: FacultyMember) async throws {
+        guard let data = personData[member.id],
+              let resolution = resolutions[member.id] else { return }
+        let s2 = try await SemanticScholarClient.shared.enrich(
+            member: member, resolvedName: resolution.displayName, works: data.works)
+        var entry = enrichment[member.id] ?? Enrichment()
+        entry.semanticScholar = s2
+        enrichment[member.id] = entry
+        save()
+    }
+
     /// Run an async operation over members with progress reporting; individual
     /// failures are collected rather than aborting the batch.
     private func runBatch(label: String,
@@ -262,6 +376,7 @@ final class AppStore: ObservableObject {
         var roster: [FacultyMember]
         var resolutions: [UUID: Resolution]
         var personData: [UUID: PersonData]
+        var enrichment: [UUID: Enrichment]?  // optional: absent in pre-enrichment state files
     }
 
     private var stateURL: URL {
@@ -269,7 +384,8 @@ final class AppStore: ObservableObject {
     }
 
     func save() {
-        let state = SavedState(roster: roster, resolutions: resolutions, personData: personData)
+        let state = SavedState(roster: roster, resolutions: resolutions,
+                               personData: personData, enrichment: enrichment)
         do {
             try FileManager.default.createDirectory(
                 at: CacheStore.supportDirectory, withIntermediateDirectories: true)
@@ -286,5 +402,6 @@ final class AppStore: ObservableObject {
         roster = state.roster
         resolutions = state.resolutions
         personData = state.personData
+        enrichment = state.enrichment ?? [:]
     }
 }

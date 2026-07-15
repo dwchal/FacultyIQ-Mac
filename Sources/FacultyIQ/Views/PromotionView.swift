@@ -114,6 +114,12 @@ struct PromotionView: View {
                 Text("\(progress.currentRank.label) → \(progress.targetRank.label)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                if let pace = paceCaption(for: progress) {
+                    Text(pace)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                predictionChip(for: progress)
             }
             Spacer()
             HStack(spacing: 6) {
@@ -125,6 +131,40 @@ struct PromotionView: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func meanRCR(for memberID: UUID) -> Double? {
+        guard let data = store.personData[memberID] else { return nil }
+        return MetricsEngine.meanRCR(works: data.works, icite: store.enrichment[memberID]?.icite)
+    }
+
+    /// Time-to-target estimate for the unmet checks, from the trailing
+    /// five-year publication/citation pace.
+    private func paceCaption(for progress: PromotionProgress) -> String? {
+        guard let data = store.personData[progress.metrics.memberID] else { return nil }
+        let projections = MetricsEngine.trajectoryProjections(data: data, promotion: progress)
+        guard let longest = projections.map(\.yearsToTarget).max() else { return nil }
+        if longest > 15 { return "At the current pace: 15+ years to the remaining targets" }
+        let years = max(Int(longest.rounded(.up)), 1)
+        return "At the current pace: ~\(years) \(years == 1 ? "year" : "years") to the remaining target\(projections.count == 1 ? "" : "s")"
+    }
+
+    /// Nearest-rank chip from the rank-distance model, shown when the profile
+    /// resembles a different rank than the member currently holds.
+    @ViewBuilder
+    private func predictionChip(for progress: PromotionProgress) -> some View {
+        if let prediction = MetricsEngine.rankPrediction(for: progress.metrics, cohort: store.metrics),
+           prediction.rank != progress.currentRank {
+            HStack(spacing: 4) {
+                Image(systemName: "sparkles")
+                Text("Profile resembles: \(prediction.rank.label) (\(Int((prediction.confidence * 100).rounded()))%)")
+            }
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.quaternary, in: Capsule())
+            .help("Weighted distance from this member's works, citations, h-index, i10, career years, and works/year to each rank's median profile in view; the percentage is how decisively the nearest rank beats the runner-up.")
+        }
     }
 
     private func metricChip(_ check: PromotionProgress.MetricCheck) -> some View {
@@ -161,11 +201,23 @@ struct PromotionView: View {
                             .background(.quaternary, in: Capsule())
                     }
                 }
+                if let progress = store.promotionProgress.first(where: { $0.id == candidate.id }) {
+                    if let pace = paceCaption(for: progress) {
+                        Text(pace)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    predictionChip(for: progress)
+                }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text("\(candidate.metrics.worksCount) works · \(candidate.metrics.citations.formatted()) citations")
                 Text("h-index \(candidate.metrics.hIndex)")
+                if let rcr = meanRCR(for: candidate.metrics.memberID) {
+                    Text(String(format: "mean RCR %.2f", rcr))
+                        .help("Mean Relative Citation Ratio (NIH iCite): 1.0 is the field-normalized average")
+                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)

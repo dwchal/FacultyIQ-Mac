@@ -67,7 +67,7 @@ actor OpenAlexClient {
     func works(authorID: String, limit: Int = 2000) async throws -> [Work] {
         var works: [Work] = []
         var cursor: String? = "*"
-        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,open_access,primary_location,authorships"
+        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships"
 
         while let c = cursor, works.count < limit {
             let url = endpoint("works", query: [
@@ -217,6 +217,9 @@ private struct OAWork: Decodable {
         }
         var author: Author?
     }
+    struct Ids: Decodable {
+        var pmid: String?        // URL form: https://pubmed.ncbi.nlm.nih.gov/123456
+    }
 
     var id: String
     var displayName: String?
@@ -225,6 +228,7 @@ private struct OAWork: Decodable {
     var type: String?
     var citedByCount: Int?
     var doi: String?
+    var ids: Ids?
     var openAccess: OpenAccess?
     var primaryLocation: Location?
     var authorships: [Authorship]?
@@ -238,6 +242,7 @@ private struct OAWork: Decodable {
             type: type,
             citedByCount: citedByCount ?? 0,
             doi: doi,
+            pmid: ids?.pmid.map { $0.replacingOccurrences(of: "https://pubmed.ncbi.nlm.nih.gov/", with: "") },
             isOA: openAccess?.isOa,
             oaStatus: openAccess?.oaStatus,
             venue: primaryLocation?.source?.displayName,

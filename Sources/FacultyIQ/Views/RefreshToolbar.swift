@@ -47,3 +47,27 @@ struct RefreshDataToolbar: ToolbarContent {
             : "Refresh Data"
     }
 }
+
+/// Toolbar button for the opt-in enrichment phase (iCite / RePORTER /
+/// Semantic Scholar, per the Settings toggles). Hidden until at least one
+/// source is enabled.
+struct EnrichDataToolbar: ToolbarContent {
+    @ObservedObject var store: AppStore
+    @AppStorage("enableICite") private var enableICite = false
+    @AppStorage("enableReporter") private var enableReporter = false
+    @AppStorage("enableSemanticScholar") private var enableSemanticScholar = false
+
+    var body: some ToolbarContent {
+        ToolbarItem {
+            if enableICite || enableReporter || enableSemanticScholar {
+                Button {
+                    Task { await store.enrichAll() }
+                } label: {
+                    Label("Enrich Data", systemImage: "sparkles")
+                }
+                .disabled(store.isBusy || store.personData.isEmpty)
+                .help("Fetch citation metrics, NIH grants, and influence data from the sources enabled in Settings")
+            }
+        }
+    }
+}

@@ -22,17 +22,35 @@ extension MetricsEngine {
 
     // MARK: Growth
 
+    /// Fraction of the current calendar year that has elapsed (0…1).
+    static var currentYearFraction: Double {
+        let calendar = Calendar.current
+        guard let start = calendar.date(from: DateComponents(year: currentYear)),
+              let end = calendar.date(from: DateComponents(year: currentYear + 1)) else {
+            return 1
+        }
+        return (Date().timeIntervalSince(start) / end.timeIntervalSince(start)).clamped(to: 0...1)
+    }
+
     /// Recent-versus-prior comparison: the last three calendar years against
-    /// the three before that.
-    static func trendMetrics(data: PersonData) -> TrendMetrics {
+    /// the three before that. The current year is incomplete, so growth
+    /// compares annualized rates — the recent window spans 2 + year-fraction
+    /// years, not 3 (`currentYearFraction` is injectable for tests).
+    static func trendMetrics(data: PersonData,
+                             currentYearFraction: Double? = nil) -> TrendMetrics {
         let y = currentYear
+        let fraction = (currentYearFraction ?? self.currentYearFraction).clamped(to: 0...1)
+        let recentSpan = 2 + fraction
         let recentYears = (y - 2)...y
         let priorYears = (y - 5)...(y - 3)
         func sum(_ map: [Int: Int], _ range: ClosedRange<Int>) -> Int {
             range.reduce(0) { $0 + (map[$1] ?? 0) }
         }
         func growth(recent: Int, prior: Int) -> Double? {
-            prior > 0 ? 100 * Double(recent - prior) / Double(prior) : nil
+            guard prior > 0 else { return nil }
+            let recentRate = Double(recent) / recentSpan
+            let priorRate = Double(prior) / 3
+            return 100 * (recentRate - priorRate) / priorRate
         }
         let works = worksByYear(data)
         let cites = citationsByYear(data)
@@ -43,6 +61,7 @@ extension MetricsEngine {
         return TrendMetrics(
             recentYears: recentYears,
             priorYears: priorYears,
+            currentYearFraction: fraction,
             recentWorks: recentWorks,
             priorWorks: priorWorks,
             recentCitations: recentCitations,

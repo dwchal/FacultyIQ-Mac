@@ -66,7 +66,7 @@ struct ProfilesView: View {
                 Image(systemName: growth >= 0 ? "arrow.up.right" : "arrow.down.right")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(growth >= 0 ? ChartPalette.positive : ChartPalette.critical)
-                    .help(String(format: "Works, last 3y vs prior 3y: %+.0f%%", growth))
+                    .help(String(format: "Works per year, last 3y vs prior 3y (current year pro-rated): %+.0f%%", growth))
             }
         }
     }
@@ -241,13 +241,15 @@ private struct ProfileDetail: View {
                         .foregroundStyle(growth >= 0 ? ChartPalette.positive : ChartPalette.critical)
                 }
             }
-            Text("\(label) · \(yearSpan(trend.recentYears)) vs \(yearSpan(trend.priorYears)) (\(prior.formatted()) → \(recent.formatted()))")
+            Text("\(label)/yr · \(yearSpan(trend.recentYears)) vs \(yearSpan(trend.priorYears)) (\(prior.formatted()) → \(recent.formatted()))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .help(String(format: "Annualized rate change — %d counts as %.0f%% of a year, so a partial year doesn't read as a slump",
+                     MetricsEngine.currentYear, trend.currentYearFraction * 100))
     }
 
     private func yearSpan(_ range: ClosedRange<Int>) -> String {

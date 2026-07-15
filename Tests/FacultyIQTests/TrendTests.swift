@@ -19,21 +19,37 @@ final class TrendTests: XCTestCase {
             works: works, fetchedAt: Date())
     }
 
-    func testTrendGrowth() {
+    func testTrendGrowth() throws {
         // Prior window (y-5…y-3): 2 works; recent window (y-2…y): 3 works.
         let data = personData(
             workYears: [year - 5, year - 4, year - 2, year - 1, year],
             citations: [year - 4: 10, year - 1: 15])
-        let trend = MetricsEngine.trendMetrics(data: data)
+        // Year fully elapsed → plain 3y-vs-3y comparison: 3 vs 2 = +50%.
+        let trend = MetricsEngine.trendMetrics(data: data, currentYearFraction: 1)
         XCTAssertEqual(trend.priorWorks, 2)
         XCTAssertEqual(trend.recentWorks, 3)
-        XCTAssertEqual(trend.worksGrowth, 50)
-        XCTAssertEqual(trend.citationsGrowth, 50)
+        XCTAssertEqual(try XCTUnwrap(trend.worksGrowth), 50, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(trend.citationsGrowth), 50, accuracy: 1e-9)
+    }
+
+    func testTrendGrowthProRatesCurrentYear() throws {
+        // 1 work per year in both windows. Halfway through the current year
+        // the recent window spans 2.5 years, so a raw count comparison would
+        // show a slump; the annualized rate should show +20%.
+        let data = personData(workYears: [year - 5, year - 4, year - 3,
+                                          year - 2, year - 1, year])
+        let trend = MetricsEngine.trendMetrics(data: data, currentYearFraction: 0.5)
+        let growth = try XCTUnwrap(trend.worksGrowth)
+        XCTAssertEqual(growth, 20, accuracy: 1e-9)   // (3/2.5) / (3/3) − 1
+        XCTAssertEqual(trend.currentYearFraction, 0.5)
+
+        // And the default fraction stays in bounds.
+        XCTAssertTrue((0...1).contains(MetricsEngine.currentYearFraction))
     }
 
     func testTrendGrowthNilWhenPriorWindowEmpty() {
         let data = personData(workYears: [year, year - 1])
-        let trend = MetricsEngine.trendMetrics(data: data)
+        let trend = MetricsEngine.trendMetrics(data: data, currentYearFraction: 0.5)
         XCTAssertNil(trend.worksGrowth)
         XCTAssertNil(trend.citationsGrowth)
     }

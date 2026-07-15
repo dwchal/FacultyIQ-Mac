@@ -251,15 +251,18 @@ struct PromotionProgress: Identifiable {
 
 // MARK: - Trends & prediction
 
-/// Recent-versus-prior activity comparison (last 3 calendar years vs the 3 before).
+/// Recent-versus-prior activity comparison (last 3 calendar years vs the 3
+/// before). Growth compares annualized rates, since the current year is only
+/// partially elapsed: recent counts span 2 + currentYearFraction years.
 struct TrendMetrics {
     var recentYears: ClosedRange<Int>
     var priorYears: ClosedRange<Int>
+    var currentYearFraction: Double  // how much of the current year has elapsed
     var recentWorks: Int
     var priorWorks: Int
     var recentCitations: Int
     var priorCitations: Int
-    var worksGrowth: Double?      // percent change; nil when the prior window is 0
+    var worksGrowth: Double?      // annualized percent change; nil when the prior window is 0
     var citationsGrowth: Double?
 }
 

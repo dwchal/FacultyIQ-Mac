@@ -30,6 +30,7 @@ final class RosterImporterTests: XCTestCase {
 
         let chen = try XCTUnwrap(members.first { $0.name == "Sarah Chen" })
         XCTAssertEqual(chen.rank, "Associate Professor")
+        XCTAssertEqual(chen.division, "Infectious Diseases")
         XCTAssertEqual(chen.orcid, "0000-0002-1825-0097")
         XCTAssertEqual(chen.scopusID, "7004567890123")
         XCTAssertEqual(chen.hireYear, 2014)
@@ -42,6 +43,13 @@ final class RosterImporterTests: XCTestCase {
         let mapping = RosterImporter.mapColumns(header)
         XCTAssertEqual(mapping[.name], 2)
         XCTAssertEqual(mapping[.scholarID], 1)
+    }
+
+    func testDivisionColumnMapping() {
+        XCTAssertEqual(RosterImporter.mapColumns(["Name", "Division"])[.division], 1)
+        XCTAssertEqual(RosterImporter.mapColumns(["Name", "Department"])[.division], 1)
+        XCTAssertEqual(RosterImporter.mapColumns(["Name", "What section are you in?"])[.division], 1)
+        XCTAssertNil(RosterImporter.mapColumns(["Name", "Email"])[.division])
     }
 
     func testCleanORCIDStripsURL() {
@@ -69,6 +77,16 @@ final class MetricsEngineTests: XCTestCase {
         XCTAssertEqual([1.0, 3.0, 2.0].median, 2.0)
         XCTAssertEqual([1.0, 2.0, 3.0, 4.0].median, 2.5)
         XCTAssertEqual([Double]().median, 0)
+    }
+
+    func testPercentile() {
+        XCTAssertEqual([1.0, 2.0, 3.0, 4.0, 5.0].percentile(0.25), 2.0)
+        XCTAssertEqual([1.0, 2.0, 3.0, 4.0].percentile(0.25), 1.75)
+        XCTAssertEqual([10.0].percentile(0.25), 10.0)
+        XCTAssertEqual([1.0, 2.0].percentile(0), 1.0)
+        XCTAssertEqual([1.0, 2.0].percentile(1), 2.0)
+        XCTAssertEqual([Double]().percentile(0.25), 0)
+        XCTAssertEqual([1.0, 2.0, 3.0].percentile(0.5), [1.0, 2.0, 3.0].median)
     }
 
     func testRankParsing() {
@@ -193,6 +211,19 @@ final class CoauthorNetworkTests: XCTestCase {
                          c.id: personData(works: [work("W1")])])
         XCTAssertEqual(network.nodes.map(\.name), ["Alice"])
         XCTAssertTrue(network.edges.isEmpty)
+    }
+
+    func testNodesCarryParsedRank() {
+        var a = member("Alice")
+        a.rank = "Associate Professor"
+        var b = member("Bob")
+        b.rank = "Adjunct Wizard"
+        let network = MetricsEngine.coauthorNetwork(
+            roster: [a, b],
+            resolutions: [a.id: resolution("A1"), b.id: resolution("A2")],
+            personData: [a.id: personData(works: []), b.id: personData(works: [])])
+        XCTAssertEqual(network.nodes.first { $0.name == "Alice" }?.rank, .associate)
+        XCTAssertNil(network.nodes.first { $0.name == "Bob" }?.rank ?? nil)
     }
 
     func testWeightsAccumulateAcrossWorks() {

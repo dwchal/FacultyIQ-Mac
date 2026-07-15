@@ -19,6 +19,7 @@ struct MemberEditorSheet: View {
     @State private var email = ""
     @State private var rankChoice = ""
     @State private var customRank = ""
+    @State private var division = ""
     @State private var hireYear = ""
     @State private var lastPromotionYear = ""
     @State private var assistantStartYear = ""
@@ -51,6 +52,8 @@ struct MemberEditorSheet: View {
                     if rankChoice == Self.customRankTag {
                         TextField("Custom rank", text: $customRank)
                     }
+                    TextField("Division / department", text: $division,
+                              prompt: Text("e.g. Infectious Diseases"))
                 }
                 Section("Career") {
                     yearField("Initial hire year", $hireYear)
@@ -106,6 +109,7 @@ struct MemberEditorSheet: View {
             rankChoice = Self.standardRanks.contains(r) ? r : Self.customRankTag
             customRank = Self.standardRanks.contains(r) ? "" : r
         }
+        division = member.division ?? ""
         hireYear = member.hireYear.map(String.init) ?? ""
         lastPromotionYear = member.lastPromotionYear.map(String.init) ?? ""
         assistantStartYear = member.assistantStartYear.map(String.init) ?? ""
@@ -123,6 +127,7 @@ struct MemberEditorSheet: View {
         result.name = name.trimmingCharacters(in: .whitespaces)
         result.email = email.trimmingCharacters(in: .whitespaces).nilIfEmpty
         result.rank = rank
+        result.division = division.trimmingCharacters(in: .whitespaces).nilIfEmpty
         result.hireYear = hireYear.extractedYear
         result.lastPromotionYear = lastPromotionYear.extractedYear
         result.assistantStartYear = assistantStartYear.extractedYear

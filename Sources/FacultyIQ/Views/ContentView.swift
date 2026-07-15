@@ -41,6 +41,7 @@ struct ContentView: View {
                 .navigationTitle(selection?.rawValue ?? "FacultyIQ")
                 .toolbar {
                     if showsRefresh {
+                        DivisionFilterToolbar(store: store)
                         RefreshDataToolbar(store: store)
                     }
                 }

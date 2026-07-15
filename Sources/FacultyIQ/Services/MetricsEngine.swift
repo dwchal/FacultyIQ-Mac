@@ -196,6 +196,7 @@ enum MetricsEngine {
                 CoauthorNode(
                     memberID: member.id,
                     name: member.name,
+                    rank: AcademicRank.parse(member.rank),
                     worksCount: personData[member.id]!.works.count,
                     degree: degree[member.id] ?? 0,
                     sharedWorks: sharedWorks[member.id] ?? 0)
@@ -210,48 +211,69 @@ enum MetricsEngine {
     static func rankBenchmarks(metrics: [PersonMetrics]) -> [RankBenchmark] {
         Dictionary(grouping: metrics.filter { $0.rank != nil }, by: { $0.rank! })
             .map { rank, group in
-                RankBenchmark(
+                let works = group.map { Double($0.worksCount) }
+                let citations = group.map { Double($0.citations) }
+                let hIndexes = group.map { Double($0.hIndex) }
+                return RankBenchmark(
                     rank: rank,
                     count: group.count,
-                    medianWorks: group.map { Double($0.worksCount) }.median,
-                    medianCitations: group.map { Double($0.citations) }.median,
-                    medianHIndex: group.map { Double($0.hIndex) }.median,
-                    medianWorksPerYear: group.map(\.worksPerYear).median
+                    medianWorks: works.median,
+                    medianCitations: citations.median,
+                    medianHIndex: hIndexes.median,
+                    medianWorksPerYear: group.map(\.worksPerYear).median,
+                    targetWorks: works.percentile(0.25),
+                    targetCitations: citations.percentile(0.25),
+                    targetHIndex: hIndexes.percentile(0.25)
                 )
             }
             .sorted { $0.rank < $1.rank }
     }
 
-    /// Faculty whose metrics meet or exceed the next rank's medians on at
-    /// least two of three key metrics (works, citations, h-index) — the
-    /// simplified counterpart of identify_promotion_candidates().
-    static func promotionCandidates(metrics: [PersonMetrics],
-                                    benchmarks: [RankBenchmark]) -> [PromotionCandidate] {
+    /// Every member's standing against the next rank's promotion targets
+    /// (25th percentile of current rank-holders) on the three key metrics.
+    static func promotionProgress(metrics: [PersonMetrics],
+                                  benchmarks: [RankBenchmark]) -> [PromotionProgress] {
         let byRank = Dictionary(uniqueKeysWithValues: benchmarks.map { ($0.rank, $0) })
         return metrics.compactMap { m in
             guard let rank = m.rank, let next = rank.next,
                   let bench = byRank[next] else { return nil }
-            var exceeded: [String] = []
-            if Double(m.worksCount) >= bench.medianWorks { exceeded.append("Works") }
-            if Double(m.citations) >= bench.medianCitations { exceeded.append("Citations") }
-            if Double(m.hIndex) >= bench.medianHIndex { exceeded.append("h-index") }
-            guard exceeded.count >= 2 else { return nil }
-            return PromotionCandidate(
-                metrics: m, currentRank: rank, targetRank: next, exceededMetrics: exceeded)
+            return PromotionProgress(
+                metrics: m, currentRank: rank, targetRank: next,
+                checks: [
+                    .init(label: "Works", value: m.worksCount, benchmark: bench.targetWorks),
+                    .init(label: "Citations", value: m.citations, benchmark: bench.targetCitations),
+                    .init(label: "h-index", value: m.hIndex, benchmark: bench.targetHIndex),
+                ])
         }
-        .sorted { $0.exceededMetrics.count > $1.exceededMetrics.count }
+    }
+
+    /// Faculty whose metrics meet or exceed the next rank's medians on at
+    /// least two of three key metrics — the simplified counterpart of
+    /// identify_promotion_candidates().
+    static func promotionCandidates(metrics: [PersonMetrics],
+                                    benchmarks: [RankBenchmark]) -> [PromotionCandidate] {
+        promotionProgress(metrics: metrics, benchmarks: benchmarks)
+            .filter { $0.metCount >= 2 }
+            .map {
+                PromotionCandidate(
+                    metrics: $0.metrics, currentRank: $0.currentRank,
+                    targetRank: $0.targetRank,
+                    exceededMetrics: $0.checks.filter(\.met).map(\.label))
+            }
+            .sorted { $0.exceededMetrics.count > $1.exceededMetrics.count }
     }
 
     // MARK: Export
 
     static func metricsCSV(metrics: [PersonMetrics], roster: [FacultyMember]) -> String {
         let byID = Dictionary(uniqueKeysWithValues: roster.map { ($0.id, $0) })
-        var lines = ["Name,Rank,Works,Citations,h-index,i10-index,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,ORCID,Scopus ID"]
+        var lines = ["Name,Rank,Division,Works,Citations,h-index,i10-index,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,ORCID,Scopus ID"]
         for m in metrics.sorted(by: { $0.name < $1.name }) {
             let member = byID[m.memberID]
             let fields = [
                 m.name,
                 m.rawRank ?? "",
+                member?.division ?? "",
                 String(m.worksCount),
                 String(m.citations),
                 String(m.hIndex),

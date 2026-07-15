@@ -6,7 +6,7 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject private var store: AppStore
 
-    private var fetched: [PersonData] { Array(store.personData.values) }
+    private var fetched: [PersonData] { store.filteredPersonData }
 
     var body: some View {
         if fetched.isEmpty {

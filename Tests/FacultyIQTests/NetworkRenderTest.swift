@@ -24,8 +24,10 @@ final class NetworkRenderTest: XCTestCase {
             degree[edge.memberA, default: 0] += 1
             degree[edge.memberB, default: 0] += 1
         }
+        let ranks: [AcademicRank?] = [.associate, .full, .assistant, .associate,
+                                      .full, .assistant, .assistant, nil]
         let nodes = zip(ids, names).enumerated().map { i, pair in
-            CoauthorNode(memberID: pair.0, name: pair.1,
+            CoauthorNode(memberID: pair.0, name: pair.1, rank: ranks[i],
                          worksCount: 20 + i * 25,
                          degree: degree[pair.0] ?? 0, sharedWorks: 0)
         }

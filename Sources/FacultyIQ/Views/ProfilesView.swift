@@ -7,7 +7,7 @@ struct ProfilesView: View {
     @State private var selectedID: UUID?
 
     private var membersWithData: [FacultyMember] {
-        store.roster.filter { store.personData[$0.id] != nil }
+        store.filteredRoster.filter { store.personData[$0.id] != nil }
     }
 
     var body: some View {
@@ -22,7 +22,8 @@ struct ProfilesView: View {
                 List(membersWithData, selection: $selectedID) { member in
                     VStack(alignment: .leading, spacing: 1) {
                         Text(member.name)
-                        Text(member.rank ?? "—")
+                        Text([member.rank, member.division].compactMap(\.self).joined(separator: " · ")
+                            .nilIfEmpty ?? "—")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -45,7 +46,8 @@ struct ProfilesView: View {
            let data = store.personData[member.id] {
             ProfileDetail(member: member, data: data,
                           resolution: store.resolution(for: member),
-                          metrics: MetricsEngine.personMetrics(member: member, data: data))
+                          metrics: MetricsEngine.personMetrics(member: member, data: data),
+                          promotion: store.promotionProgress.first { $0.id == member.id })
         } else {
             Text("Select a faculty member")
                 .foregroundStyle(.secondary)
@@ -59,6 +61,7 @@ private struct ProfileDetail: View {
     let data: PersonData
     let resolution: Resolution?
     let metrics: PersonMetrics
+    let promotion: PromotionProgress?
     @State private var worksSort = [KeyPathComparator(\Work.citedByCount, order: .reverse)]
 
     var body: some View {
@@ -66,11 +69,73 @@ private struct ProfileDetail: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 metricGrid
+                promotionCard
                 trendChart
                 topWorks
             }
             .padding(20)
         }
+    }
+
+    // MARK: Promotion readiness
+
+    @ViewBuilder
+    private var promotionCard: some View {
+        if let promotion {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Promotion Readiness").font(.headline)
+                    Text("Against the \(promotion.targetRank.label) promotion targets (25th percentile of current rank-holders in view)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(promotion.checks) { check in
+                    progressRow(check)
+                }
+                promotionSummary(promotion)
+            }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func progressRow(_ check: PromotionProgress.MetricCheck) -> some View {
+        HStack(spacing: 12) {
+            Text(check.label)
+                .frame(width: 70, alignment: .leading)
+            ProgressView(value: min(Double(check.value) / max(check.benchmark, 1), 1))
+                .tint(check.met ? ChartPalette.positive : ChartPalette.series1)
+            Text("\(check.value.formatted()) / \(Int(check.benchmark.rounded()))")
+                .monospacedDigit()
+                .frame(width: 110, alignment: .trailing)
+            Group {
+                if check.met {
+                    Label("met", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(ChartPalette.positive)
+                } else {
+                    Text("needs \(check.gap.formatted()) more")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+            .frame(width: 120, alignment: .leading)
+        }
+        .font(.callout)
+    }
+
+    private func promotionSummary(_ promotion: PromotionProgress) -> some View {
+        let met = promotion.metCount
+        return Group {
+            if met >= 2 {
+                Label("Meets the promotion criteria (\(met) of 3 targets; 2 required)",
+                      systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(ChartPalette.positive)
+            } else {
+                Text("Meets \(met) of 3 targets — promotion candidates need 2. Targets shift with the division filter and as colleagues' data updates.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption)
     }
 
     private var header: some View {

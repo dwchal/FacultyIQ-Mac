@@ -7,6 +7,7 @@ struct FacultyMember: Identifiable, Codable, Hashable {
     var name: String
     var email: String?
     var rank: String?
+    var division: String?
     var lastPromotionYear: Int?
     var hireYear: Int?
     var assistantStartYear: Int?
@@ -167,6 +168,12 @@ struct RankBenchmark: Identifiable {
     var medianCitations: Double
     var medianHIndex: Double
     var medianWorksPerYear: Double
+    // Promotion targets: the 25th percentile of current rank-holders — the
+    // low end of the rank, since accumulated medians overstate the bar
+    // people actually cleared at promotion.
+    var targetWorks: Double
+    var targetCitations: Double
+    var targetHIndex: Double
 
     var id: Int { rank.rawValue }
 }
@@ -192,6 +199,7 @@ struct CoauthorEdge: Identifiable, Hashable {
 struct CoauthorNode: Identifiable, Hashable {
     var memberID: UUID
     var name: String
+    var rank: AcademicRank?      // parsed; nil when unknown/unparseable
     var worksCount: Int          // works fetched for this member
     var degree: Int              // distinct roster coauthors
     var sharedWorks: Int         // sum of edge weights touching this node
@@ -214,6 +222,32 @@ struct PromotionCandidate: Identifiable {
     var id: UUID { metrics.memberID }
 }
 
+/// One member's standing against the next rank's median benchmarks.
+struct PromotionProgress: Identifiable {
+    struct MetricCheck: Identifiable {
+        var label: String        // "Works", "Citations", "h-index"
+        var value: Int
+        var benchmark: Double
+
+        var met: Bool { Double(value) >= benchmark }
+        /// How much is missing to reach the benchmark (0 when met).
+        var gap: Int { max(0, Int(benchmark.rounded(.up)) - value) }
+        var id: String { label }
+    }
+
+    var metrics: PersonMetrics
+    var currentRank: AcademicRank
+    var targetRank: AcademicRank
+    var checks: [MetricCheck]
+
+    var metCount: Int { checks.count(where: \.met) }
+    /// 0…3, how far along the three metrics are (each capped at its benchmark).
+    var closeness: Double {
+        checks.map { min(Double($0.value) / max($0.benchmark, 1), 1) }.reduce(0, +)
+    }
+    var id: UUID { metrics.memberID }
+}
+
 // MARK: - Shared helpers
 
 extension Collection where Element: BinaryFloatingPoint {
@@ -223,6 +257,22 @@ extension Collection where Element: BinaryFloatingPoint {
         let sorted = self.sorted().map { Double($0) }
         let mid = sorted.count / 2
         return sorted.count.isMultiple(of: 2) ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+    }
+
+    /// Linearly interpolated percentile (0...1), the R-7/NumPy default; 0 when empty.
+    func percentile(_ p: Double) -> Double {
+        guard !isEmpty else { return 0 }
+        let sorted = self.sorted().map { Double($0) }
+        let position = p.clamped(to: 0...1) * Double(sorted.count - 1)
+        let lower = Int(position)
+        guard lower + 1 < sorted.count else { return sorted[lower] }
+        return sorted[lower] + (position - Double(lower)) * (sorted[lower + 1] - sorted[lower])
+    }
+}
+
+extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }
 

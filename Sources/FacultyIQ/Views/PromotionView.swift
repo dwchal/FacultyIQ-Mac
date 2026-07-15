@@ -18,6 +18,7 @@ struct PromotionView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     benchmarkSection
                     candidateSection
+                    nearCandidateSection
                 }
                 .padding(20)
             }
@@ -26,37 +27,58 @@ struct PromotionView: View {
 
     private var benchmarkSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Rank Benchmarks (Medians)").font(.headline)
-            Text("Median metrics within each academic rank in this roster.")
+            Text("Rank Benchmarks").font(.headline)
+            Text("Median within each rank, and the promotion target (25th percentile — the low end of the rank, since accumulated medians overstate the bar people cleared at promotion).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Table(store.benchmarks.sorted(using: sortOrder), sortOrder: $sortOrder) {
                 TableColumn("Rank", value: \.rank) { Text($0.rank.label) }
                 TableColumn("Faculty", value: \.count) { Text("\($0.count)") }
                     .width(60)
-                TableColumn("Works", value: \.medianWorks) { Text(String(format: "%.0f", $0.medianWorks)) }
-                    .width(70)
-                TableColumn("Citations", value: \.medianCitations) { Text(String(format: "%.0f", $0.medianCitations)) }
-                    .width(80)
-                TableColumn("h-index", value: \.medianHIndex) { Text(String(format: "%.0f", $0.medianHIndex)) }
-                    .width(70)
+                TableColumn("Works", value: \.medianWorks) {
+                    benchmarkCell(median: $0.medianWorks, target: $0.targetWorks)
+                }
+                .width(90)
+                TableColumn("Citations", value: \.medianCitations) {
+                    benchmarkCell(median: $0.medianCitations, target: $0.targetCitations)
+                }
+                .width(100)
+                TableColumn("h-index", value: \.medianHIndex) {
+                    benchmarkCell(median: $0.medianHIndex, target: $0.targetHIndex)
+                }
+                .width(90)
                 TableColumn("Works / Year", value: \.medianWorksPerYear) { Text(String(format: "%.2f", $0.medianWorksPerYear)) }
                     .width(90)
             }
-            .frame(height: CGFloat(store.benchmarks.count) * 28 + 40)
+            .frame(height: CGFloat(store.benchmarks.count) * 40 + 40)
         }
+    }
+
+    private func benchmarkCell(median: Double, target: Double) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(String(format: "%.0f", median))
+            Text(String(format: "target %.0f", target))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var nearCandidates: [PromotionProgress] {
+        store.promotionProgress
+            .filter { $0.metCount == 1 }
+            .sorted { $0.closeness > $1.closeness }
     }
 
     @ViewBuilder
     private var candidateSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Promotion Candidates").font(.headline)
-            Text("Faculty meeting or exceeding the next rank's median on at least two of: works, citations, h-index.")
+            Text("Faculty meeting the next rank's promotion target on at least two of: works, citations, h-index.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             if store.promotionCandidates.isEmpty {
-                Text("No candidates identified with the current data.")
+                Text("No one currently meets two of the three next-rank targets.")
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
@@ -65,6 +87,59 @@ struct PromotionView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var nearCandidateSection: some View {
+        if !nearCandidates.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Close to Promotion").font(.headline)
+                Text("Meeting one of the three targets — sorted by overall progress toward the next rank.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(nearCandidates) { progress in
+                    nearCandidateCard(progress)
+                }
+            }
+        }
+    }
+
+    private func nearCandidateCard(_ progress: PromotionProgress) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(progress.metrics.name).font(.body.weight(.semibold))
+                Text("\(progress.currentRank.label) → \(progress.targetRank.label)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                ForEach(progress.checks) { check in
+                    metricChip(check)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func metricChip(_ check: PromotionProgress.MetricCheck) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: check.met ? "checkmark.circle.fill" : "circle.dotted")
+                .foregroundStyle(check.met ? ChartPalette.positive : Color.secondary)
+            Text("\(check.label) \(check.value.formatted()) / \(Int(check.benchmark.rounded()))")
+        }
+        .font(.caption.weight(.medium))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(.quaternary, in: Capsule())
+        .help(check.met
+            ? "\(check.label): meets the next rank's promotion target"
+            : "\(check.label): needs \(check.gap.formatted()) more to reach the target")
     }
 
     private func candidateCard(_ candidate: PromotionCandidate) -> some View {

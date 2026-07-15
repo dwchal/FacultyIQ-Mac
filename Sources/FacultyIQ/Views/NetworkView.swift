@@ -227,7 +227,55 @@ struct NetworkGraphView: View {
                 }
             }
         }
+        .overlay(alignment: .bottomLeading) { legend }
         .padding(8)
+    }
+
+    /// Fixed rank → color slots; a rank keeps its color no matter which ranks
+    /// are on screen. Unknown ranks are gray.
+    static func color(for rank: AcademicRank?) -> Color {
+        switch rank {
+        case .assistant: ChartPalette.series1
+        case .associate: ChartPalette.series2
+        case .full: ChartPalette.series3
+        case .instructor: ChartPalette.series4
+        case nil: Color.gray
+        }
+    }
+
+    private static func shortLabel(for rank: AcademicRank?) -> String {
+        switch rank {
+        case .instructor: "Instructor"
+        case .assistant: "Assistant"
+        case .associate: "Associate"
+        case .full: "Full"
+        case nil: "Unknown rank"
+        }
+    }
+
+    @ViewBuilder
+    private var legend: some View {
+        let present: [AcademicRank?] = AcademicRank.allCases.filter { rank in
+            nodes.contains { $0.rank == rank }
+        } + (nodes.contains { $0.rank == nil } ? [nil] : [])
+        if present.count >= 2 {
+            HStack(spacing: 12) {
+                ForEach(present, id: \.self) { rank in
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Self.color(for: rank))
+                            .frame(width: 9, height: 9)
+                        Text(Self.shortLabel(for: rank))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.background.opacity(0.85), in: Capsule())
+            .padding(6)
+        }
     }
 
     private func edgeCanvas(focusID: UUID?, size: CGSize) -> some View {
@@ -244,7 +292,7 @@ struct NetworkGraphView: View {
                 context.stroke(
                     path,
                     with: highlighted
-                        ? .color(ChartPalette.series1)
+                        ? .color(.primary.opacity(0.6))
                         : .color(.gray.opacity(dimmed ? 0.12 : 0.35)),
                     lineWidth: 1 + min(5, 1.5 * log2(1 + Double(edge.weight))))
 
@@ -265,7 +313,7 @@ struct NetworkGraphView: View {
         let radius = 6 + 10 * (Double(node.worksCount) / Double(max(maxWorks, 1))).squareRoot()
         return VStack(spacing: 3) {
             Circle()
-                .fill(ChartPalette.series1)
+                .fill(Self.color(for: node.rank))
                 .overlay(Circle().strokeBorder(
                     selectedID == node.memberID ? Color.primary : Color(nsColor: .windowBackgroundColor),
                     lineWidth: 2))

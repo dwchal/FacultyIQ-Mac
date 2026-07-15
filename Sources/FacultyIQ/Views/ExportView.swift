@@ -8,14 +8,14 @@ struct ExportView: View {
 
     var body: some View {
         Form {
-            Section("Data Exports") {
+            Section {
                 exportRow(
                     "Faculty Metrics",
                     detail: "One row per faculty member: works, citations, h-index, i10, productivity, OA share.",
                     filename: "faculty_metrics.csv",
                     disabled: store.metrics.isEmpty
                 ) {
-                    MetricsEngine.metricsCSV(metrics: store.metrics, roster: store.roster)
+                    MetricsEngine.metricsCSV(metrics: store.metrics, roster: store.filteredRoster)
                 }
                 exportRow(
                     "Yearly Time Series",
@@ -23,7 +23,7 @@ struct ExportView: View {
                     filename: "faculty_yearly.csv",
                     disabled: store.personData.isEmpty
                 ) {
-                    MetricsEngine.yearlyCSV(roster: store.roster, personData: store.personData)
+                    MetricsEngine.yearlyCSV(roster: store.filteredRoster, personData: store.personData)
                 }
                 exportRow(
                     "Coauthorship Edges",
@@ -40,6 +40,12 @@ struct ExportView: View {
                     disabled: store.roster.isEmpty
                 ) {
                     rosterCSV()
+                }
+            } header: {
+                Text("Data Exports")
+            } footer: {
+                if store.divisionFilter != nil {
+                    Text("Exports include only the selected division; choose All Divisions in the toolbar to export everyone.")
                 }
             }
             if let confirmation {
@@ -82,13 +88,14 @@ struct ExportView: View {
     }
 
     private func rosterCSV() -> String {
-        var lines = ["Name,Email,Rank,Hire Year,ORCID,Scopus ID,OpenAlex ID,Resolved Name,Resolution Method"]
-        for member in store.roster {
+        var lines = ["Name,Email,Rank,Division,Hire Year,ORCID,Scopus ID,OpenAlex ID,Resolved Name,Resolution Method"]
+        for member in store.filteredRoster {
             let res = store.resolution(for: member)
             lines.append([
                 member.name,
                 member.email ?? "",
                 member.rank ?? "",
+                member.division ?? "",
                 member.hireYear.map(String.init) ?? "",
                 member.orcid ?? "",
                 member.scopusID ?? "",

@@ -9,6 +9,10 @@ final class AppStore: ObservableObject {
     @Published var resolutions: [UUID: Resolution] = [:]
     @Published var personData: [UUID: PersonData] = [:]
 
+    /// Restricts every analysis tab (dashboard, profiles, promotion, network,
+    /// export) to one division; nil shows everyone. Session-only, not persisted.
+    @Published var divisionFilter: String? = nil
+
     @Published var isBusy = false
     @Published var progressText = ""
     @Published var progress: Double? = nil   // 0...1 while a batch runs
@@ -22,13 +26,30 @@ final class AppStore: ObservableObject {
 
     // MARK: Derived state
 
+    /// Distinct divisions present in the roster, sorted.
+    var divisions: [String] {
+        Array(Set(roster.compactMap(\.division))).sorted()
+    }
+
+    /// The roster as the analysis tabs see it: everyone, or one division.
+    var filteredRoster: [FacultyMember] {
+        guard let filter = divisionFilter, divisions.contains(filter) else { return roster }
+        return roster.filter { $0.division == filter }
+    }
+
+    var filteredPersonData: [PersonData] {
+        filteredRoster.compactMap { personData[$0.id] }
+    }
+
     var metrics: [PersonMetrics] {
-        MetricsEngine.allMetrics(roster: roster, personData: personData)
+        MetricsEngine.allMetrics(roster: filteredRoster, personData: personData)
     }
 
     var summary: DivisionSummary {
         MetricsEngine.divisionSummary(
-            roster: roster, resolvedCount: resolutions.count, metrics: metrics)
+            roster: filteredRoster,
+            resolvedCount: filteredRoster.count { resolutions[$0.id] != nil },
+            metrics: metrics)
     }
 
     var benchmarks: [RankBenchmark] {
@@ -39,9 +60,13 @@ final class AppStore: ObservableObject {
         MetricsEngine.promotionCandidates(metrics: metrics, benchmarks: benchmarks)
     }
 
+    var promotionProgress: [PromotionProgress] {
+        MetricsEngine.promotionProgress(metrics: metrics, benchmarks: benchmarks)
+    }
+
     var coauthorNetwork: CoauthorNetwork {
         MetricsEngine.coauthorNetwork(
-            roster: roster, resolutions: resolutions, personData: personData)
+            roster: filteredRoster, resolutions: resolutions, personData: personData)
     }
 
     func resolution(for member: FacultyMember) -> Resolution? {
@@ -81,6 +106,7 @@ final class AppStore: ObservableObject {
         // Keep resolutions/data only makes sense per-roster; new roster resets them.
         resolutions = [:]
         personData = [:]
+        divisionFilter = nil
         lastError = nil
         save()
     }
@@ -116,6 +142,7 @@ final class AppStore: ObservableObject {
         roster = []
         resolutions = [:]
         personData = [:]
+        divisionFilter = nil
         save()
     }
 

@@ -99,6 +99,7 @@ struct RosterView: View {
             Table(store.roster.sorted(using: sortOrder), selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Rank", value: \.rankSort) { Text($0.rank ?? "—") }
+                TableColumn("Division", value: \.divisionSort) { Text($0.division ?? "—") }
                 TableColumn("Hired", value: \.hireYearSort) { Text($0.hireYear.map(String.init) ?? "—") }
                     .width(60)
                 TableColumn("Last Promotion", value: \.promotionYearSort) { Text($0.lastPromotionYear.map(String.init) ?? "—") }
@@ -162,6 +163,7 @@ struct RosterView: View {
 // Sort keys for optional columns; missing values sort first ascending.
 private extension FacultyMember {
     var rankSort: String { rank ?? "" }
+    var divisionSort: String { division ?? "" }
     var hireYearSort: Int { hireYear ?? 0 }
     var promotionYearSort: Int { lastPromotionYear ?? 0 }
     var orcidSort: String { orcid ?? "" }

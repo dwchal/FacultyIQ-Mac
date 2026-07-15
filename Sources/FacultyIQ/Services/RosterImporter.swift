@@ -46,6 +46,7 @@ enum RosterImporter {
                 name: name,
                 email: value(.email),
                 rank: value(.rank),
+                division: value(.division),
                 lastPromotionYear: value(.lastPromotion)?.extractedYear,
                 hireYear: value(.hireDate)?.extractedYear,
                 assistantStartYear: value(.assistantStart)?.extractedYear,
@@ -62,7 +63,7 @@ enum RosterImporter {
     }
 
     enum Field: CaseIterable {
-        case name, email, rank, lastPromotion, hireDate
+        case name, email, rank, division, lastPromotion, hireDate
         case assistantStart, associateStart, fullStart
         case selfReportedPubs, scopusID, scholarID, orcid, semanticScholarID
         case associations
@@ -83,6 +84,7 @@ enum RosterImporter {
             ?? firstIndex { $0.contains("name") && !$0.contains("username") && !$0.contains("user name") }
         mapping[.email] = firstIndex { $0.contains("email") || $0.contains("e-mail") }
         mapping[.rank] = firstIndex { $0.contains("rank") }
+        mapping[.division] = firstIndex { $0.contains("division") || $0.contains("department") || $0.contains("section") }
         mapping[.lastPromotion] = firstIndex { $0.contains("promotion") }
         mapping[.hireDate] = firstIndex { $0.contains("hire") }
         mapping[.assistantStart] = firstIndex { $0.contains("assistant") && ($0.contains("start") || $0.contains("date")) }

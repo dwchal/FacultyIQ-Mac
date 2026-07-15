@@ -27,10 +27,56 @@ struct DashboardView: View {
                         oaChart
                         topFacultyChart
                     }
+                    if history.count >= 2 {
+                        historyRow
+                    }
                 }
                 .padding(20)
             }
         }
+    }
+
+    // MARK: Tracked history
+
+    /// The app's own record of the cohort's totals across fetches — actual
+    /// observed movement, unlike the year charts inferred from OpenAlex data.
+    private var history: [MetricsEngine.HistoryPoint] {
+        let authorIDs = Set(store.filteredRoster.compactMap { store.resolutions[$0.id]?.openalexID })
+        return MetricsEngine.divisionHistory(snapshots: store.snapshots, authorIDs: authorIDs)
+    }
+
+    private var historyRow: some View {
+        let points = history
+        let tracked = points.last?.tracked ?? 0
+        // Two measures of different scale get two charts, never a second axis.
+        return HStack(alignment: .top, spacing: 20) {
+            chartCard("Tracked Works", subtitle: "Total works at each data fetch (\(tracked) tracked)") {
+                historyChart(points, value: \.works, label: "Works")
+            }
+            chartCard("Tracked Citations", subtitle: "Total citations at each data fetch (\(tracked) tracked)") {
+                historyChart(points, value: \.citations, label: "Citations")
+            }
+        }
+    }
+
+    private func historyChart(_ points: [MetricsEngine.HistoryPoint],
+                              value: KeyPath<MetricsEngine.HistoryPoint, Int>,
+                              label: String) -> some View {
+        Chart(points) { point in
+            LineMark(
+                x: .value("Date", point.date),
+                y: .value(label, point[keyPath: value])
+            )
+            .foregroundStyle(ChartPalette.series1)
+            .lineStyle(StrokeStyle(lineWidth: 2))
+            PointMark(
+                x: .value("Date", point.date),
+                y: .value(label, point[keyPath: value])
+            )
+            .foregroundStyle(ChartPalette.series1)
+            .symbolSize(36)
+        }
+        .chartYScale(domain: .automatic(includesZero: false))
     }
 
     // MARK: KPI tiles

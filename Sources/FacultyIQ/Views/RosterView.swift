@@ -8,6 +8,7 @@ struct RosterView: View {
     @State private var selection: Set<FacultyMember.ID> = []
     @State private var editorTarget: EditorTarget?
     @State private var sortOrder: [KeyPathComparator<FacultyMember>] = [] // empty = import order
+    @State private var searchText = ""
 
     private enum EditorTarget: Identifiable {
         case new
@@ -29,6 +30,7 @@ struct RosterView: View {
                 rosterTable
             }
         }
+        .searchable(text: $searchText, prompt: "Name, rank, or division")
         .toolbar {
             ToolbarItemGroup {
                 Button {
@@ -96,7 +98,8 @@ struct RosterView: View {
         VStack(alignment: .leading, spacing: 0) {
             completenessHeader
             Divider()
-            Table(store.roster.sorted(using: sortOrder), selection: $selection, sortOrder: $sortOrder) {
+            Table(store.roster.filter { $0.matches(search: searchText) }.sorted(using: sortOrder),
+                  selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Rank", value: \.rankSort) { Text($0.rank ?? "—") }
                 TableColumn("Division", value: \.divisionSort) { Text($0.division ?? "—") }

@@ -5,44 +5,58 @@ import SwiftUI
 struct ProfilesView: View {
     @EnvironmentObject private var store: AppStore
     @State private var selectedID: UUID?
+    @State private var searchText = ""
 
     private var membersWithData: [FacultyMember] {
         store.filteredRoster.filter { store.personData[$0.id] != nil }
     }
 
-    var body: some View {
-        if membersWithData.isEmpty {
-            ContentUnavailableView(
-                "No Faculty Data",
-                systemImage: "person.text.rectangle",
-                description: Text("Fetch metrics on the Resolution tab to view individual profiles.")
-            )
-        } else {
-            HSplitView {
-                List(membersWithData, selection: $selectedID) { member in
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(member.name)
-                            Text([member.rank, member.division].compactMap(\.self).joined(separator: " · ")
-                                .nilIfEmpty ?? "—")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 8)
-                        if let data = store.personData[member.id] {
-                            rowSparkline(data)
-                        }
-                    }
-                    .tag(member.id)
-                }
-                .frame(minWidth: 200, maxWidth: 300)
+    /// The member list under the current search; the detail pane keeps showing
+    /// a filtered-out selection so searching doesn't blank the profile.
+    private var visibleMembers: [FacultyMember] {
+        membersWithData.filter { $0.matches(search: searchText) }
+    }
 
-                detail
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    var body: some View {
+        Group {
+            if membersWithData.isEmpty {
+                ContentUnavailableView(
+                    "No Faculty Data",
+                    systemImage: "person.text.rectangle",
+                    description: Text("Fetch metrics on the Resolution tab to view individual profiles.")
+                )
+            } else {
+                splitView
             }
-            .onAppear {
-                if selectedID == nil { selectedID = membersWithData.first?.id }
+        }
+        .searchable(text: $searchText, prompt: "Name, rank, or division")
+    }
+
+    private var splitView: some View {
+        HSplitView {
+            List(visibleMembers, selection: $selectedID) { member in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(member.name)
+                        Text([member.rank, member.division].compactMap(\.self).joined(separator: " · ")
+                            .nilIfEmpty ?? "—")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    if let data = store.personData[member.id] {
+                        rowSparkline(data)
+                    }
+                }
+                .tag(member.id)
             }
+            .frame(minWidth: 200, maxWidth: 300)
+
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onAppear {
+            if selectedID == nil { selectedID = membersWithData.first?.id }
         }
     }
 
@@ -80,7 +94,11 @@ struct ProfilesView: View {
                           metrics: MetricsEngine.personMetrics(member: member, data: data),
                           promotion: store.promotionProgress.first { $0.id == member.id },
                           cohortData: store.filteredPersonData,
-                          enrichment: store.enrichment[member.id])
+                          enrichment: store.enrichment[member.id],
+                          history: store.resolution(for: member).map {
+                              MetricsEngine.personHistory(snapshots: store.snapshots,
+                                                          openalexID: $0.openalexID)
+                          } ?? [])
         } else {
             Text("Select a faculty member")
                 .foregroundStyle(.secondary)
@@ -97,6 +115,7 @@ private struct ProfileDetail: View {
     let promotion: PromotionProgress?
     let cohortData: [PersonData]
     let enrichment: Enrichment?
+    let history: [MetricSnapshot]
     @State private var worksSort = [KeyPathComparator(\Work.citedByCount, order: .reverse)]
     @State private var showGrantsSheet = false
     @AppStorage("enableReporter") private var reporterEnabled = false
@@ -110,6 +129,7 @@ private struct ProfileDetail: View {
                 fundingCard
                 trendChart
                 trajectoryCard
+                historyCard
                 topWorks
             }
             .padding(20)
@@ -338,6 +358,55 @@ private struct ProfileDetail: View {
         }
     }
 
+    // MARK: Tracked history
+
+    /// Observed metric movement across this app's own fetches — appears once
+    /// two readings with different values exist.
+    @ViewBuilder
+    private var historyCard: some View {
+        if history.count >= 2 {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tracked History").font(.headline)
+                    Text("Readings recorded at each data fetch, since \(history.first!.date.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                // Different scales, separate charts — never a second y-axis.
+                HStack(alignment: .top, spacing: 12) {
+                    historyChart(value: \.works, label: "Works")
+                    historyChart(value: \.citations, label: "Citations")
+                    historyChart(value: \.hIndex, label: "h-index")
+                }
+            }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func historyChart(value: KeyPath<MetricSnapshot, Int>, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Chart(history) { snapshot in
+                LineMark(
+                    x: .value("Date", snapshot.date),
+                    y: .value(label, snapshot[keyPath: value])
+                )
+                .foregroundStyle(ChartPalette.series1)
+                .lineStyle(StrokeStyle(lineWidth: 2))
+                PointMark(
+                    x: .value("Date", snapshot.date),
+                    y: .value(label, snapshot[keyPath: value])
+                )
+                .foregroundStyle(ChartPalette.series1)
+                .symbolSize(30)
+            }
+            .chartYScale(domain: .automatic(includesZero: false))
+            .frame(height: 120)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     // MARK: Promotion readiness
 
     @ViewBuilder
@@ -421,6 +490,18 @@ private struct ProfileDetail: View {
                 }
             }
             .font(.callout)
+            topicsLine
+        }
+    }
+
+    @ViewBuilder
+    private var topicsLine: some View {
+        let topics = MetricsEngine.personTopics(data: data)
+        if !topics.isEmpty {
+            Text("Topics: " + topics.map { "\($0.name) (\($0.works))" }.joined(separator: " · "))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
         }
     }
 

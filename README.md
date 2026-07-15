@@ -22,7 +22,13 @@ individual profiles, coauthorship networks, and promotion insights.
   works/year, open-access share, recent 5-year output. Computed from OpenAlex
   data; h/i10 fall back to local computation from works when needed.
 - **Dashboard** — KPI tiles plus charts: publications per year, citations
-  received per year, OA share by year, most-cited faculty.
+  received per year, OA share by year, most-cited faculty. Once the app has
+  recorded snapshots on two different days, *Tracked History* charts show the
+  cohort's observed works/citations movement across your own fetches.
+- **What's New** — *Check for Updates* re-fetches everyone straight from
+  OpenAlex (skipping the 7-day response cache) and reports what changed per
+  member: new publications with links, citation and h-index movement. Changes
+  accumulate across checks until you click *Mark Reviewed*.
 - **Faculty profiles** — per-person metric grid, promotion readiness card,
   publication trend, most-cited works with DOI links, links to OpenAlex/ORCID
   profiles. A works sparkline and growth arrow next to each name in the list.
@@ -37,6 +43,18 @@ individual profiles, coauthorship networks, and promotion insights.
   section shows near-misses with per-metric gaps, time-to-target pace
   estimates, and a nearest-rank prediction chip (a port of the Shiny app's
   weighted rank-distance model).
+- **Research topics** — what the division actually works on, from each work's
+  OpenAlex primary topic: top topics (coauthored works counted once), decade
+  trend lines for the leading topics, a sortable topic × field × faculty
+  table, and each profile's top three topics.
+- **Funding dashboard** — division-level rollup of the attached NIH grants:
+  total awarded, funded faculty, active and R01-equivalent projects, awards by
+  fiscal year and by activity code, and the most-funded faculty. Multi-PI
+  projects shared by roster members count once in the totals.
+- **Tracked history** — every fetch records a dated per-author snapshot of
+  works, citations, and h-index (in `snapshots.json`, keyed by author so it
+  survives roster re-imports). Dashboard and profile charts plot the observed
+  movement — actual change between your fetches, not inferred trends.
 - **Coauthorship network** — a node-link graph of who publishes with whom
   inside the roster: nodes colored by academic rank and sized by output, edges
   weighted by shared works, with a minimum-weight filter and a per-member
@@ -64,7 +82,9 @@ individual profiles, coauthorship networks, and promotion insights.
   - **Semantic Scholar** — influential-citation counts per work (shared
     keyless rate pool, so this source can be slow; a manual Semantic Scholar
     ID field is honored when set).
-- **Sortable tables** — every table sorts by clicking column headers.
+- **Sortable, searchable tables** — every table sorts by clicking column
+  headers, and the people lists (Roster, Resolution, Faculty Profiles) have a
+  search field filtering by name, rank, or division.
 
 ## Requirements
 
@@ -89,7 +109,7 @@ Or open `Package.swift` in Xcode and run the FacultyIQ scheme.
 ## Tests
 
 ```bash
-swift test                    # unit tests (CSV, roster mapping, metrics, trends, network, PDF)
+swift test                    # unit tests (CSV, roster mapping, metrics, trends, topics, funding, deltas, history, network, PDF)
 FACULTYIQ_LIVE=1 swift test   # + live API tests (OpenAlex, iCite, RePORTER, Semantic Scholar)
 ```
 
@@ -103,12 +123,16 @@ NetworkRenderTest` or `RENDER_OUT=/tmp swift test --filter PDFRenderTest`.
    CSV first.
 2. **Resolution** — click *Auto-Resolve All* (uses ORCID/Scopus IDs), then
    *Search…* for anyone left, then *Fetch Metrics*.
-3. **Dashboard / Profiles / Promotion / Network** — explore; use the toolbar
-   division picker to focus on one division.
+3. **Dashboard / Profiles / Promotion / Topics / Network** — explore; use the
+   toolbar division picker to focus on one division.
 4. **Enrich (optional)** — enable iCite / RePORTER / Semantic Scholar in
-   **Settings → Data Enrichment**, then click *Enrich Data* in the toolbar.
+   **Settings → Data Enrichment**, then click *Enrich Data* in the toolbar;
+   the Funding tab lights up once grants are attached.
 5. **Export** — save CSVs, a division summary PDF, or a per-member promotion
    dossier PDF.
+6. **Come back later** — *Check for Updates* on the What's New tab re-fetches
+   everyone and shows what changed; each visit also extends the tracked
+   history charts.
 
 Set your email in **Settings → OpenAlex** to join the
 [polite pool](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication)

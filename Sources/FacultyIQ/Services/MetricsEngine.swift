@@ -21,6 +21,35 @@ enum MetricsEngine {
         citations.count { $0 >= 10 }
     }
 
+    /// The profile's h-index, or the local computation when OpenAlex omits it.
+    static func effectiveHIndex(_ data: PersonData) -> Int {
+        data.profile.hIndex ?? hIndex(citations: data.works.map(\.citedByCount))
+    }
+
+    // MARK: Refresh deltas
+
+    /// What changed from `old` to `new`, folded into any accumulated delta so
+    /// repeated checks keep reporting against the user's last-reviewed baseline.
+    /// Work IDs that have since vanished from the record (merged or removed by
+    /// OpenAlex) are dropped rather than reported as new.
+    static func refreshDelta(old: PersonData, new: PersonData,
+                             accumulating existing: RefreshDelta? = nil) -> RefreshDelta {
+        let oldIDs = Set(old.works.map(\.id))
+        let addedIDs = new.works.map(\.id).filter { !oldIDs.contains($0) }
+        let currentIDs = Set(new.works.map(\.id))
+        let carried = (existing?.newWorkIDs ?? []).filter {
+            currentIDs.contains($0) && !addedIDs.contains($0)
+        }
+        return RefreshDelta(
+            since: existing?.since ?? old.fetchedAt,
+            checkedAt: new.fetchedAt,
+            newWorkIDs: carried + addedIDs,
+            worksDelta: (existing?.worksDelta ?? 0) + (new.profile.worksCount - old.profile.worksCount),
+            citationsDelta: (existing?.citationsDelta ?? 0) + (new.profile.citedByCount - old.profile.citedByCount),
+            hIndexDelta: (existing?.hIndexDelta ?? 0) + (effectiveHIndex(new) - effectiveHIndex(old))
+        )
+    }
+
     // MARK: Per-person metrics
 
     static func personMetrics(member: FacultyMember, data: PersonData) -> PersonMetrics {
@@ -49,7 +78,7 @@ enum MetricsEngine {
             rawRank: member.rank,
             worksCount: worksCount,
             citations: totalCitations,
-            hIndex: data.profile.hIndex ?? hIndex(citations: citations),
+            hIndex: effectiveHIndex(data),
             i10Index: data.profile.i10Index ?? i10Index(citations: citations),
             citationsPerWork: worksCount > 0 ? Double(totalCitations) / Double(worksCount) : 0,
             worksPerYear: Double(worksCount) / Double(careerYears),

@@ -56,6 +56,7 @@ final class EnrichmentDecodingTests: XCTestCase {
         XCTAssertEqual(u24.totalAward, 2_500_000)
         XCTAssertEqual(u24.latestProjectNum, "5U24HG007346-09")
         XCTAssertEqual(u24.title, "A Resource (renamed)")
+        XCTAssertEqual(u24.awardsByFiscalYear, [2023: 1_200_000, 2024: 1_300_000])
 
         let r01 = try XCTUnwrap(grants.first { $0.coreProjectNum == "R01AI123456" })
         XCTAssertEqual(r01.totalAward, 650_000)

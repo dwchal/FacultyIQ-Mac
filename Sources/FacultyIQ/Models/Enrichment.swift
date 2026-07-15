@@ -35,6 +35,7 @@ struct Grant: Codable, Hashable, Identifiable {
     var startDate: String?
     var endDate: String?
     var orgName: String?
+    var awardsByFiscalYear: [Int: Int]? = nil  // FY → awarded; nil = pre-breakdown fetch
 
     var id: String { coreProjectNum }
 }

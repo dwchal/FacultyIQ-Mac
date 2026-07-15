@@ -4,8 +4,11 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case roster = "Roster"
     case resolution = "Resolution"
     case dashboard = "Dashboard"
+    case whatsNew = "What's New"
     case profiles = "Faculty Profiles"
     case promotion = "Promotion Insights"
+    case topics = "Topics"
+    case funding = "Funding"
     case network = "Network"
     case export = "Export"
 
@@ -16,8 +19,11 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .roster: "person.3"
         case .resolution: "person.crop.circle.badge.checkmark"
         case .dashboard: "chart.bar.xaxis"
+        case .whatsNew: "bell.badge"
         case .profiles: "person.text.rectangle"
         case .promotion: "arrow.up.right.circle"
+        case .topics: "tag"
+        case .funding: "dollarsign.circle"
         case .network: "point.3.connected.trianglepath.dotted"
         case .export: "square.and.arrow.up"
         }
@@ -65,8 +71,11 @@ struct ContentView: View {
         case .roster: RosterView()
         case .resolution: ResolutionView()
         case .dashboard: DashboardView()
+        case .whatsNew: WhatsNewView()
         case .profiles: ProfilesView()
         case .promotion: PromotionView()
+        case .topics: TopicsView()
+        case .funding: FundingView()
         case .network: NetworkView()
         case .export: ExportView()
         }
@@ -76,7 +85,7 @@ struct ContentView: View {
     /// their own workflow toolbars.
     private var showsRefresh: Bool {
         switch selection ?? .roster {
-        case .dashboard, .profiles, .promotion, .network, .export: true
+        case .dashboard, .whatsNew, .profiles, .promotion, .topics, .funding, .network, .export: true
         case .roster, .resolution: false
         }
     }
@@ -85,6 +94,7 @@ struct ContentView: View {
         switch item {
         case .roster: store.roster.count
         case .resolution: store.roster.count - store.resolutions.count
+        case .whatsNew: store.deltas.count
         case .promotion: store.promotionCandidates.count
         default: 0
         }

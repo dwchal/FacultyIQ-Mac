@@ -6,6 +6,7 @@ struct ResolutionView: View {
     @EnvironmentObject private var store: AppStore
     @State private var searchTarget: FacultyMember?
     @State private var sortOrder: [KeyPathComparator<ResolutionRow>] = [] // empty = roster order
+    @State private var searchText = ""
 
     /// Row model so store-derived columns (status, resolved author, data) are
     /// sortable; TableColumn sort keys must live on the row type.
@@ -21,16 +22,22 @@ struct ResolutionView: View {
     }
 
     private var rows: [ResolutionRow] {
-        store.roster.map { member in
-            let res = store.resolution(for: member)
-            return ResolutionRow(
-                member: member,
-                idCount: (member.orcid != nil ? 1 : 0) + (member.scopusID != nil ? 1 : 0),
-                status: res?.method.rawValue ?? "",
-                resolvedName: res?.displayName ?? "",
-                worksCount: store.personData[member.id]?.works.count ?? -1)
-        }
-        .sorted(using: sortOrder)
+        store.roster
+            .filter {
+                $0.matches(search: searchText)
+                    || (store.resolution(for: $0)?.displayName
+                        .localizedCaseInsensitiveContains(searchText) ?? false)
+            }
+            .map { member in
+                let res = store.resolution(for: member)
+                return ResolutionRow(
+                    member: member,
+                    idCount: (member.orcid != nil ? 1 : 0) + (member.scopusID != nil ? 1 : 0),
+                    status: res?.method.rawValue ?? "",
+                    resolvedName: res?.displayName ?? "",
+                    worksCount: store.personData[member.id]?.works.count ?? -1)
+            }
+            .sorted(using: sortOrder)
     }
 
     var body: some View {
@@ -45,6 +52,7 @@ struct ResolutionView: View {
                 table
             }
         }
+        .searchable(text: $searchText, prompt: "Name, rank, or division")
         .toolbar {
             ToolbarItemGroup {
                 Button {

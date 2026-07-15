@@ -10,6 +10,13 @@ final class AppStore: ObservableObject {
     @Published var personData: [UUID: PersonData] = [:]
     @Published var enrichment: [UUID: Enrichment] = [:]
 
+    /// Accumulated per-member changes from re-fetches, until reviewed.
+    @Published var deltas: [UUID: RefreshDelta] = [:]
+    @Published var lastUpdateCheck: Date?
+
+    /// Dated metric readings appended at fetch time; see SnapshotStore.
+    @Published private(set) var snapshots: [MetricSnapshot] = []
+
     /// Restricts every analysis tab (dashboard, profiles, promotion, network,
     /// export) to one division; nil shows everyone. Session-only, not persisted.
     @Published var divisionFilter: String? = nil
@@ -23,6 +30,7 @@ final class AppStore: ObservableObject {
 
     init() {
         load()
+        snapshots = SnapshotStore.load()
     }
 
     // MARK: Derived state
@@ -108,6 +116,7 @@ final class AppStore: ObservableObject {
         resolutions = [:]
         personData = [:]
         enrichment = [:]
+        deltas = [:]
         divisionFilter = nil
         lastError = nil
         save()
@@ -128,6 +137,7 @@ final class AppStore: ObservableObject {
             resolutions[member.id] = nil
             personData[member.id] = nil
             enrichment[member.id] = nil
+            deltas[member.id] = nil
         }
         save()
     }
@@ -138,6 +148,7 @@ final class AppStore: ObservableObject {
             resolutions[id] = nil
             personData[id] = nil
             enrichment[id] = nil
+            deltas[id] = nil
         }
         save()
     }
@@ -147,6 +158,7 @@ final class AppStore: ObservableObject {
         resolutions = [:]
         personData = [:]
         enrichment = [:]
+        deltas = [:]
         divisionFilter = nil
         save()
     }
@@ -182,6 +194,7 @@ final class AppStore: ObservableObject {
         if resolutions[member.id]?.openalexID != candidate.openalexID {
             personData[member.id] = nil
             enrichment[member.id] = nil
+            deltas[member.id] = nil
         }
         resolutions[member.id] = Resolution(
             openalexID: candidate.openalexID,
@@ -197,6 +210,7 @@ final class AppStore: ObservableObject {
         resolutions[member.id] = nil
         personData[member.id] = nil
         enrichment[member.id] = nil
+        deltas[member.id] = nil
         save()
     }
 
@@ -229,12 +243,72 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func fetchOne(_ member: FacultyMember) async throws {
+    func fetchOne(_ member: FacultyMember, bypassCache: Bool = false) async throws {
         guard let resolution = resolutions[member.id] else { return }
-        let profile = try await client.author(id: resolution.openalexID)
-        let works = try await client.works(authorID: resolution.openalexID)
-        personData[member.id] = PersonData(profile: profile, works: works, fetchedAt: Date())
+        let profile = try await client.author(id: resolution.openalexID, bypassCache: bypassCache)
+        let works = try await client.works(authorID: resolution.openalexID, bypassCache: bypassCache)
+        let new = PersonData(profile: profile, works: works, fetchedAt: Date())
+        if let old = personData[member.id] {
+            let delta = MetricsEngine.refreshDelta(old: old, new: new,
+                                                   accumulating: deltas[member.id])
+            deltas[member.id] = delta.hasChanges ? delta : nil
+        }
+        personData[member.id] = new
+        recordSnapshot(new)
         save()
+    }
+
+    /// Append a history reading unless nothing moved since the author's last one.
+    private func recordSnapshot(_ data: PersonData) {
+        let snapshot = MetricSnapshot(
+            date: data.fetchedAt,
+            openalexID: data.profile.openalexID,
+            name: data.profile.displayName,
+            works: max(data.profile.worksCount, data.works.count),
+            citations: data.profile.citedByCount,
+            hIndex: MetricsEngine.effectiveHIndex(data))
+        if let last = snapshots.last(where: { $0.openalexID == snapshot.openalexID }),
+           (last.works, last.citations, last.hIndex)
+               == (snapshot.works, snapshot.citations, snapshot.hIndex) {
+            return
+        }
+        snapshots.append(snapshot)
+        SnapshotStore.save(snapshots)
+    }
+
+    func clearSnapshots() {
+        snapshots = []
+        SnapshotStore.save(snapshots)
+    }
+
+    // MARK: What's new
+
+    /// Re-fetch everyone who already has data, straight from OpenAlex (the
+    /// 7-day response cache would otherwise hand back the same data), and
+    /// record what changed. Deltas accumulate until cleared via markReviewed().
+    func checkForUpdates() async {
+        let members = roster.filter { resolutions[$0.id] != nil && personData[$0.id] != nil }
+        guard !members.isEmpty else { return }
+        await runBatch(label: "Checking", items: members) { member in
+            try await self.fetchOne(member, bypassCache: true)
+        }
+        lastUpdateCheck = Date()
+        save()
+    }
+
+    /// Clear the accumulated deltas: the next check diffs against today's data.
+    func markReviewed() {
+        deltas = [:]
+        save()
+    }
+
+    /// The works a delta's IDs refer to, resolved against the member's
+    /// current data, newest first.
+    func newWorks(for memberID: UUID) -> [Work] {
+        guard let delta = deltas[memberID], let data = personData[memberID] else { return [] }
+        let ids = Set(delta.newWorkIDs)
+        return data.works.filter { ids.contains($0.id) }
+            .sorted { ($0.year ?? 0, $0.citedByCount) > (($1.year ?? 0), $1.citedByCount) }
     }
 
     // MARK: Enrichment
@@ -312,6 +386,16 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Re-fetch just the attached grants (e.g. to pick up the per-fiscal-year
+    /// award breakdown on data enriched before it was tracked).
+    func refreshGrants() async {
+        let members = roster.filter { enrichment[$0.id]?.grants != nil }
+        guard !members.isEmpty else { return }
+        await runBatch(label: "Refreshing grants", items: members) { member in
+            try await self.enrichReporter(member)
+        }
+    }
+
     func searchPIs(name: String) async -> [PICandidate] {
         do {
             return try await ReporterClient.shared.searchPIs(name: name)
@@ -377,6 +461,8 @@ final class AppStore: ObservableObject {
         var resolutions: [UUID: Resolution]
         var personData: [UUID: PersonData]
         var enrichment: [UUID: Enrichment]?  // optional: absent in pre-enrichment state files
+        var deltas: [UUID: RefreshDelta]?    // optional: absent in pre-what's-new state files
+        var lastUpdateCheck: Date?
     }
 
     private var stateURL: URL {
@@ -385,7 +471,8 @@ final class AppStore: ObservableObject {
 
     func save() {
         let state = SavedState(roster: roster, resolutions: resolutions,
-                               personData: personData, enrichment: enrichment)
+                               personData: personData, enrichment: enrichment,
+                               deltas: deltas, lastUpdateCheck: lastUpdateCheck)
         do {
             try FileManager.default.createDirectory(
                 at: CacheStore.supportDirectory, withIntermediateDirectories: true)
@@ -403,5 +490,7 @@ final class AppStore: ObservableObject {
         resolutions = state.resolutions
         personData = state.personData
         enrichment = state.enrichment ?? [:]
+        deltas = state.deltas ?? [:]
+        lastUpdateCheck = state.lastUpdateCheck
     }
 }

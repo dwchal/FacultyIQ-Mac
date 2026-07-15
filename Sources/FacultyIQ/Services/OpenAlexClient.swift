@@ -57,17 +57,17 @@ actor OpenAlexClient {
         }
     }
 
-    func author(id openalexID: String) async throws -> AuthorProfile {
+    func author(id openalexID: String, bypassCache: Bool = false) async throws -> AuthorProfile {
         let url = endpoint("authors/\(openalexID.shortOpenAlexID)", query: [])
-        let author: OAAuthor = try await fetch(url)
+        let author: OAAuthor = try await fetch(url, bypassCache: bypassCache)
         return author.profile
     }
 
     /// All works for an author, cursor-paginated, most-cited first.
-    func works(authorID: String, limit: Int = 2000) async throws -> [Work] {
+    func works(authorID: String, limit: Int = 2000, bypassCache: Bool = false) async throws -> [Work] {
         var works: [Work] = []
         var cursor: String? = "*"
-        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships"
+        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships,primary_topic"
 
         while let c = cursor, works.count < limit {
             let url = endpoint("works", query: [
@@ -77,7 +77,7 @@ actor OpenAlexClient {
                 URLQueryItem(name: "sort", value: "cited_by_count:desc"),
                 URLQueryItem(name: "cursor", value: c),
             ])
-            let page: OAList<OAWork> = try await fetch(url)
+            let page: OAList<OAWork> = try await fetch(url, bypassCache: bypassCache)
             works.append(contentsOf: page.results.map { $0.work })
             cursor = page.results.isEmpty ? nil : page.meta?.nextCursor
         }
@@ -99,14 +99,14 @@ actor OpenAlexClient {
         return components.url!
     }
 
-    private func fetch<T: Decodable>(_ url: URL) async throws -> T {
+    private func fetch<T: Decodable>(_ url: URL, bypassCache: Bool = false) async throws -> T {
         // Cache key excludes the mailto param so changing email keeps the cache.
         var keyComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         keyComponents.queryItems = keyComponents.queryItems?.filter { $0.name != "mailto" }
         let key = keyComponents.url!.absoluteString
 
         let data: Data
-        if let cached = cache.data(forKey: key) {
+        if !bypassCache, let cached = cache.data(forKey: key) {
             data = cached
         } else {
             data = try await fetchRaw(url)
@@ -220,6 +220,13 @@ private struct OAWork: Decodable {
     struct Ids: Decodable {
         var pmid: String?        // URL form: https://pubmed.ncbi.nlm.nih.gov/123456
     }
+    struct PrimaryTopic: Decodable {
+        struct Field: Decodable {
+            var displayName: String?
+        }
+        var displayName: String?
+        var field: Field?
+    }
 
     var id: String
     var displayName: String?
@@ -232,6 +239,7 @@ private struct OAWork: Decodable {
     var openAccess: OpenAccess?
     var primaryLocation: Location?
     var authorships: [Authorship]?
+    var primaryTopic: PrimaryTopic?
 
     var work: Work {
         Work(
@@ -253,7 +261,9 @@ private struct OAWork: Decodable {
                         openalexID: authorID.shortOpenAlexID,
                         displayName: entry.author?.displayName ?? "")
                 }
-            }
+            },
+            topicName: primaryTopic?.displayName,
+            topicField: primaryTopic?.field?.displayName
         )
     }
 }

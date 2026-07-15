@@ -34,6 +34,10 @@ final class OpenAlexIntegrationTests: XCTestCase {
         XCTAssertTrue(works.contains { work in
             (work.authors ?? []).contains { $0.openalexID == resolved.openalexID }
         })
+
+        // Primary topics come back for at least some works.
+        XCTAssertTrue(works.contains { $0.topicName != nil })
+        XCTAssertTrue(works.contains { $0.topicField != nil })
     }
 
     func testUnknownORCIDReturnsNil() async throws {

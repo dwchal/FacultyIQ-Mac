@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var store: AppStore
     @AppStorage("openalexEmail") private var email = ""
     @AppStorage("enableICite") private var enableICite = false
     @AppStorage("enableReporter") private var enableReporter = false
@@ -42,9 +43,25 @@ struct SettingsView: View {
                     cacheInfo = CacheStore.shared.sizeDescription
                 }
             }
+            Section("Metric History") {
+                LabeledContent("Tracked readings", value: historyInfo)
+                Text("Each data fetch records works, citations, and h-index per author when they change, powering the Tracked History charts. History is keyed by author, so it survives roster re-imports.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Clear History") {
+                    store.clearSnapshots()
+                }
+                .disabled(store.snapshots.isEmpty)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var historyInfo: String {
+        guard let earliest = store.snapshots.map(\.date).min() else { return "none yet" }
+        let authors = Set(store.snapshots.map(\.openalexID)).count
+        return "\(store.snapshots.count) readings · \(authors) authors · since \(earliest.formatted(date: .abbreviated, time: .omitted))"
     }
 }

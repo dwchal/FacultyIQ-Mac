@@ -21,6 +21,17 @@ struct FacultyMember: Identifiable, Codable, Hashable {
     var associations: String?
 }
 
+extension FacultyMember {
+    /// Case-insensitive match against name, rank, and division — the filter
+    /// behind the search fields on the people lists.
+    func matches(search: String) -> Bool {
+        let query = search.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return true }
+        return [name, rank, division].compactMap(\.self)
+            .contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+}
+
 enum AcademicRank: Int, CaseIterable, Comparable {
     case instructor = 1
     case assistant = 2
@@ -118,6 +129,8 @@ struct Work: Identifiable, Codable, Hashable {
     var oaStatus: String?
     var venue: String?
     var authors: [WorkAuthor]?   // nil = fetched before authorships were tracked
+    var topicName: String? = nil  // OpenAlex primary topic; nil = untagged or pre-topic fetch
+    var topicField: String? = nil // the field that topic belongs to (e.g. "Medicine")
 }
 
 struct WorkAuthor: Codable, Hashable {
@@ -129,6 +142,36 @@ struct PersonData: Codable, Hashable {
     var profile: AuthorProfile
     var works: [Work]
     var fetchedAt: Date
+}
+
+/// One dated reading of an author's headline metrics, appended at fetch time
+/// whenever the values change. Keyed by OpenAlex author ID — not roster UUID —
+/// so history survives roster re-imports and clears.
+struct MetricSnapshot: Codable, Hashable, Identifiable {
+    var date: Date
+    var openalexID: String
+    var name: String
+    var works: Int
+    var citations: Int
+    var hIndex: Int
+
+    var id: String { "\(openalexID)|\(date.timeIntervalSinceReferenceDate)" }
+}
+
+/// What changed for one member between data fetches. Deltas accumulate across
+/// re-fetches (keeping the original `since` baseline) until the user clears
+/// them, so nothing is missed when checks happen more often than reviews.
+struct RefreshDelta: Codable, Hashable {
+    var since: Date              // fetchedAt of the baseline the diff started from
+    var checkedAt: Date          // most recent re-fetch that fed this delta
+    var newWorkIDs: [String]     // works present now but not at the baseline
+    var worksDelta: Int          // profile works_count change (indexing can lag the works list)
+    var citationsDelta: Int
+    var hIndexDelta: Int
+
+    var hasChanges: Bool {
+        !newWorkIDs.isEmpty || worksDelta != 0 || citationsDelta != 0 || hIndexDelta != 0
+    }
 }
 
 // MARK: - Computed metrics

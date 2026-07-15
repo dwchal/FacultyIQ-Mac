@@ -99,6 +99,12 @@ actor ReporterClient {
         return byCore.map { core, group in
             let sorted = group.sorted { ($0.fiscalYear ?? 0) < ($1.fiscalYear ?? 0) }
             let latest = sorted.last!
+            var byFY: [Int: Int] = [:]
+            for row in group {
+                if let fy = row.fiscalYear, let amount = row.awardAmount {
+                    byFY[fy, default: 0] += amount
+                }
+            }
             return Grant(
                 coreProjectNum: core,
                 latestProjectNum: latest.projectNum ?? core,
@@ -108,7 +114,8 @@ actor ReporterClient {
                 totalAward: group.compactMap(\.awardAmount).reduce(0, +),
                 startDate: sorted.compactMap(\.projectStartDate).first,
                 endDate: sorted.compactMap(\.projectEndDate).last,
-                orgName: latest.organization?.orgName)
+                orgName: latest.organization?.orgName,
+                awardsByFiscalYear: byFY)
         }
         .sorted { ($0.fiscalYears.last ?? 0, $0.totalAward) > (($1.fiscalYears.last ?? 0), $1.totalAward) }
     }

@@ -24,6 +24,7 @@ struct FacultyIQApp: App {
 
         Settings {
             SettingsView()
+                .environmentObject(store)
         }
     }
 }

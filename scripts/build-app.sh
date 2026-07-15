@@ -10,6 +10,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/FacultyIQ "$APP/Contents/MacOS/FacultyIQ"
 cp scripts/Info.plist "$APP/Contents/Info.plist"
+cp scripts/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$APP"
 
 echo "Built $PWD/$APP"

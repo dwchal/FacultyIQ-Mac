@@ -66,13 +66,9 @@ struct DashboardView: View {
         let data = MetricsEngine.worksPerYear(personData: fetched)
         return chartCard("Publications per Year", subtitle: "All indexed works across the division") {
             Chart(data, id: \.year) { item in
-                BarMark(
-                    x: .value("Year", item.year),
-                    y: .value("Works", item.count),
-                    width: .ratio(0.7)
-                )
-                .foregroundStyle(ChartPalette.series1)
-                .cornerRadius(2)
+                yearColumn(year: item.year, label: "Works", value: Double(item.count))
+                    .foregroundStyle(ChartPalette.series1)
+                    .cornerRadius(2)
             }
             .yearXAxis(years: data.map(\.year))
         }
@@ -103,13 +99,9 @@ struct DashboardView: View {
         let data = MetricsEngine.oaShareByYear(personData: fetched)
         return chartCard("Open Access Share", subtitle: "% of works published open access, by year") {
             Chart(data, id: \.year) { item in
-                BarMark(
-                    x: .value("Year", item.year),
-                    y: .value("OA %", item.percent),
-                    width: .ratio(0.7)
-                )
-                .foregroundStyle(ChartPalette.series2)
-                .cornerRadius(2)
+                yearColumn(year: item.year, label: "OA %", value: item.percent)
+                    .foregroundStyle(ChartPalette.series2)
+                    .cornerRadius(2)
             }
             .chartYScale(domain: 0...100)
             .yearXAxis(years: data.map(\.year))

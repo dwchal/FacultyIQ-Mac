@@ -1,6 +1,18 @@
 import Charts
 import SwiftUI
 
+/// Column mark for charts whose x is an integer year. BarMark's
+/// `width: .ratio` has no unit bandwidth on a continuous axis and silently
+/// renders zero-width bars, so span an explicit x interval (70% of a year).
+func yearColumn(year: Int, label: String, value: Double) -> some ChartContent {
+    RectangleMark(
+        xStart: .value("Year", Double(year) - 0.35),
+        xEnd: .value("Year", Double(year) + 0.35),
+        yStart: .value(label, 0.0),
+        yEnd: .value(label, value)
+    )
+}
+
 extension View {
     /// X axis for charts whose x is an integer year: plain year labels (no
     /// thousands separators), whole-year ticks at a readable density anchored

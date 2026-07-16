@@ -59,4 +59,31 @@ final class FundingTests: XCTestCase {
         XCTAssertNil(MetricsEngine.divisionFunding(roster: [alice],
                                                    enrichment: [alice.id: attach([])]))
     }
+
+    func testExcludedGrantsStayFilteredOnReattach() {
+        let fetched = [grant("R01AI000001", total: 900_000),
+                       grant("K08AI000002", activity: "K08", total: 300_000)]
+
+        var entry = attach(fetched)
+        XCTAssertEqual(entry.filteringExcluded(fetched).count, 2, "nothing excluded yet")
+
+        // The user removes the R01; a later re-attach fetches both again but
+        // must only keep the K08.
+        entry.excludedGrants = ["R01AI000001"]
+        let kept = entry.filteringExcluded(fetched)
+        XCTAssertEqual(kept.map(\.coreProjectNum), ["K08AI000002"])
+    }
+
+    func testExcludedGrantsRoundTripAndOldPayloadDecodes() throws {
+        var entry = attach([grant("R01AI000001", total: 1)])
+        entry.excludedGrants = ["R01AI000001", "U01AI000009"]
+        let decoded = try JSONDecoder().decode(
+            Enrichment.self, from: JSONEncoder().encode(entry))
+        XCTAssertEqual(decoded.excludedGrants, ["R01AI000001", "U01AI000009"])
+
+        // Pre-exclusion payloads decode with no exclusions and filter nothing.
+        let old = try JSONDecoder().decode(Enrichment.self, from: Data("{}".utf8))
+        XCTAssertNil(old.excludedGrants)
+        XCTAssertEqual(old.filteringExcluded([grant("R01AI000001", total: 1)]).count, 1)
+    }
 }

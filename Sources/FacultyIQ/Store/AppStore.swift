@@ -409,12 +409,36 @@ final class AppStore: ObservableObject {
         let grants = try await ReporterClient.shared.projects(profileID: candidate.profileID)
         var entry = enrichment[member.id] ?? Enrichment()
         entry.grants = GrantData(
-            grants: grants,
+            grants: entry.filteringExcluded(grants),
             confirmedProfileID: candidate.profileID,
             confirmedPIName: candidate.name,
             fetchedAt: Date())
         enrichment[member.id] = entry
         save()
+    }
+
+    /// Detach one grant and remember the removal, so no future refresh or
+    /// re-attach brings it back.
+    func excludeGrant(_ member: FacultyMember, coreProjectNum: String) {
+        var entry = enrichment[member.id] ?? Enrichment()
+        entry.excludedGrants = (entry.excludedGrants ?? []).union([coreProjectNum])
+        entry.grants?.grants.removeAll { $0.coreProjectNum == coreProjectNum }
+        enrichment[member.id] = entry
+        save()
+    }
+
+    /// Forget the member's hand-removed grants and re-attach from the
+    /// confirmed investigator so they reappear immediately.
+    func restoreExcludedGrants(_ member: FacultyMember) async {
+        guard var entry = enrichment[member.id],
+              !(entry.excludedGrants ?? []).isEmpty else { return }
+        entry.excludedGrants = nil
+        enrichment[member.id] = entry
+        save()
+        guard entry.grants?.confirmedProfileID != nil else { return }
+        await runBatch(label: "Restoring grants", items: [member]) { member in
+            try await self.enrichReporter(member)
+        }
     }
 
     private func enrichSemanticScholar(_ member: FacultyMember) async throws {

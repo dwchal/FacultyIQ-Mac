@@ -108,6 +108,7 @@ struct ProfilesView: View {
 }
 
 private struct ProfileDetail: View {
+    @EnvironmentObject private var store: AppStore
     let member: FacultyMember
     let data: PersonData
     let resolution: Resolution?
@@ -180,6 +181,14 @@ private struct ProfileDetail: View {
                                 Text(currency(grant.totalAward))
                                     .monospacedDigit()
                                     .gridColumnAlignment(.trailing)
+                                Button {
+                                    store.excludeGrant(member, coreProjectNum: grant.coreProjectNum)
+                                } label: {
+                                    Image(systemName: "xmark.circle")
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.tertiary)
+                                .help("Remove this grant — it stays off through future refreshes")
                             }
                             .font(.callout)
                         }
@@ -190,6 +199,7 @@ private struct ProfileDetail: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                excludedFooter
             }
             .padding(16)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
@@ -206,6 +216,23 @@ private struct ProfileDetail: View {
             }
             .padding(16)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    /// Notes hand-removed grants and offers to bring them back.
+    @ViewBuilder
+    private var excludedFooter: some View {
+        if let excluded = enrichment?.excludedGrants, !excluded.isEmpty {
+            HStack(spacing: 8) {
+                Text("\(excluded.count) \(excluded.count == 1 ? "grant" : "grants") removed by hand — kept off on refresh.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Restore") {
+                    Task { await store.restoreExcludedGrants(member) }
+                }
+                .controlSize(.small)
+                .disabled(store.isBusy)
+            }
         }
     }
 

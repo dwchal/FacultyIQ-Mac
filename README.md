@@ -78,7 +78,10 @@ individual profiles, coauthorship networks, and promotion insights.
     PubMed-indexed work, mean RCR per person, median RCR on the dashboard.
   - **NIH RePORTER** — grant funding per confirmed principal investigator
     (activity codes, fiscal years, total awards, R01-equivalent count); name
-    matches are confirmed via a search sheet since PI search is fuzzy.
+    matches are confirmed via a search sheet since PI search is fuzzy, and a
+    wrongly attached grant can be removed from the profile — the removal is
+    remembered, so no refresh or re-attach brings it back (with a Restore
+    button to undo).
   - **Semantic Scholar** — influential-citation counts per work (shared
     keyless rate pool, so this source can be slow; a manual Semantic Scholar
     ID field is honored when set).

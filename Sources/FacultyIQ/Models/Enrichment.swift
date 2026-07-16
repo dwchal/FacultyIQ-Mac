@@ -76,6 +76,18 @@ struct Enrichment: Codable, Hashable {
     var icite: ICiteData?
     var grants: GrantData?
     var semanticScholar: S2Data?
+
+    /// Core project numbers the user removed by hand (RePORTER name matching
+    /// occasionally attaches someone else's grant). Kept separate from
+    /// GrantData, which is replaced wholesale on re-attach, so removals
+    /// survive every future fetch.
+    var excludedGrants: Set<String>? = nil
+
+    /// The given grants minus the ones the user removed by hand.
+    func filteringExcluded(_ grants: [Grant]) -> [Grant] {
+        guard let excludedGrants, !excludedGrants.isEmpty else { return grants }
+        return grants.filter { !excludedGrants.contains($0.coreProjectNum) }
+    }
 }
 
 extension String {

@@ -11,6 +11,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case publications = "Publications"
     case funding = "Funding"
     case network = "Network"
+    case external = "External Collaborators"
     case export = "Export"
 
     var id: String { rawValue }
@@ -27,6 +28,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .publications: "doc.text"
         case .funding: "dollarsign.circle"
         case .network: "point.3.connected.trianglepath.dotted"
+        case .external: "person.2.wave.2"
         case .export: "square.and.arrow.up"
         }
     }
@@ -80,6 +82,7 @@ struct ContentView: View {
         case .publications: PublicationsView()
         case .funding: FundingView()
         case .network: NetworkView()
+        case .external: ExternalCollaboratorsView()
         case .export: ExportView()
         }
     }
@@ -89,7 +92,7 @@ struct ContentView: View {
     private var showsRefresh: Bool {
         switch selection ?? .roster {
         case .dashboard, .whatsNew, .profiles, .promotion, .topics, .publications, .funding,
-             .network, .export: true
+             .network, .external, .export: true
         case .roster, .resolution: false
         }
     }

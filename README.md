@@ -67,6 +67,11 @@ individual profiles, coauthorship networks, and promotion insights.
   inside the roster: nodes colored by academic rank and sized by output, edges
   weighted by shared works, with a minimum-weight filter and a per-member
   collaborator panel.
+- **External collaborators** — a sortable table of frequent coauthors from
+  outside the roster, ranked by shared works, showing which roster members
+  each one publishes with; affiliations and author metrics fetched on demand,
+  plus a CSV export. Unresolved roster members are kept out of the list by
+  ID and by a normalized name match.
 - **Divisions** — filter every analysis tab (and the exports) to one
   division/department from the toolbar; benchmarks and targets recompute
   within the selection.
@@ -136,8 +141,9 @@ NetworkRenderTest` or `RENDER_OUT=/tmp swift test --filter PDFRenderTest`.
    CSV first.
 2. **Resolution** — click *Auto-Resolve All* (uses ORCID/Scopus IDs), then
    *Search…* for anyone left, then *Fetch Metrics*.
-3. **Dashboard / Profiles / Promotion / Topics / Network** — explore; use the
-   toolbar division picker to focus on one division.
+3. **Dashboard / Profiles / Promotion / Topics / Network / External
+   Collaborators** — explore; use the toolbar division picker to focus on one
+   division.
 4. **Enrich (optional)** — enable iCite / RePORTER / Semantic Scholar in
    **Settings → Data Enrichment**, then click *Enrich Data* in the toolbar;
    the Funding tab lights up once grants are attached.

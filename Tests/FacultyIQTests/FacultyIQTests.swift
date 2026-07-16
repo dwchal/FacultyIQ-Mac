@@ -250,6 +250,102 @@ final class CoauthorNetworkTests: XCTestCase {
     }
 }
 
+final class ExternalCollaboratorTests: XCTestCase {
+    private func member(_ name: String, division: String? = nil) -> FacultyMember {
+        FacultyMember(name: name, division: division)
+    }
+
+    private func resolution(_ authorID: String, name: String = "") -> Resolution {
+        Resolution(openalexID: authorID, displayName: name.isEmpty ? authorID : name, method: .manual)
+    }
+
+    private func work(_ id: String, year: Int = 2020, authors: [(String, String)]) -> Work {
+        Work(id: id, title: id, year: year, date: nil, type: nil, citedByCount: 0,
+             doi: nil, isOA: nil, oaStatus: nil, venue: nil,
+             authors: authors.map { WorkAuthor(openalexID: $0.0, displayName: $0.1) })
+    }
+
+    private func personData(works: [Work]) -> PersonData {
+        PersonData(
+            profile: AuthorProfile(openalexID: "A0", displayName: "", worksCount: works.count,
+                                   citedByCount: 0, hIndex: nil, i10Index: nil,
+                                   affiliation: nil, countsByYear: []),
+            works: works, fetchedAt: Date())
+    }
+
+    func testAggregatesAcrossMembersAndDedupesSharedWorks() {
+        let (a, b) = (member("Alice"), member("Bob"))
+        // X1 appears on a shared work in both members' lists: counts once.
+        let shared = work("W1", year: 2021, authors: [("A1", "Alice"), ("A2", "Bob"), ("X1", "Xena Ruiz")])
+        let solo = work("W2", year: 2023, authors: [("A2", "Bob"), ("X1", "Xena Ruiz")])
+        let externals = MetricsEngine.externalCollaborators(
+            roster: [a, b],
+            resolutions: [a.id: resolution("A1"), b.id: resolution("A2")],
+            personData: [a.id: personData(works: [shared]),
+                         b.id: personData(works: [shared, solo])])
+        XCTAssertEqual(externals.count, 1)
+        let x = externals[0]
+        XCTAssertEqual(x.openalexID, "X1")
+        XCTAssertEqual(x.sharedWorks, 2)
+        XCTAssertEqual(x.partnerCount, 2)
+        XCTAssertEqual(x.lastSharedYear, 2023)
+        XCTAssertEqual(x.partners.first?.name, "Bob")
+        XCTAssertEqual(x.partners.first?.weight, 2)
+    }
+
+    func testResolvedRosterMembersNeverExternal() {
+        let (a, b) = (member("Alice", division: "Cardiology"), member("Bob", division: "GIM"))
+        let externals = MetricsEngine.externalCollaborators(
+            roster: [a],                       // division-filtered to Alice only
+            fullRoster: [a, b],
+            resolutions: [a.id: resolution("A1"), b.id: resolution("A2")],
+            personData: [a.id: personData(works: [work("W1", authors: [("A1", "Alice"), ("A2", "Bob")])])])
+        XCTAssertTrue(externals.isEmpty)
+    }
+
+    func testUnresolvedRosterMemberExcludedByNameMatch() {
+        let (a, b) = (member("Alice"), member("Doe, John"))
+        let externals = MetricsEngine.externalCollaborators(
+            roster: [a, b],
+            resolutions: [a.id: resolution("A1")],  // John never resolved
+            personData: [a.id: personData(works: [
+                work("W1", authors: [("A1", "Alice"), ("A9", "John A. Doe"), ("X1", "Xena Ruiz")])
+            ])])
+        XCTAssertEqual(externals.map(\.openalexID), ["X1"])
+    }
+
+    func testKeepsLongestNameVariant() {
+        let a = member("Alice")
+        let externals = MetricsEngine.externalCollaborators(
+            roster: [a],
+            resolutions: [a.id: resolution("A1")],
+            personData: [a.id: personData(works: [
+                work("W1", authors: [("A1", "Alice"), ("X1", "X. Ruiz")]),
+                work("W2", authors: [("A1", "Alice"), ("X1", "Xena B. Ruiz")]),
+            ])])
+        XCTAssertEqual(externals.first?.displayName, "Xena B. Ruiz")
+    }
+
+    func testNameKeyNormalization() {
+        XCTAssertEqual(MetricsEngine.nameKey("Doe, John A."), MetricsEngine.nameKey("John Doe"))
+        XCTAssertEqual(MetricsEngine.nameKey("José García"), MetricsEngine.nameKey("Jose Garcia"))
+        XCTAssertNotEqual(MetricsEngine.nameKey("John Doe"), MetricsEngine.nameKey("Jane Doe"))
+    }
+
+    func testCSV() {
+        let a = member("Alice")
+        let externals = MetricsEngine.externalCollaborators(
+            roster: [a],
+            resolutions: [a.id: resolution("A1")],
+            personData: [a.id: personData(works: [
+                work("W1", year: 2022, authors: [("A1", "Alice"), ("X1", "Ruiz, Xena")])
+            ])])
+        let csv = MetricsEngine.externalCollaboratorsCSV(externals)
+        XCTAssertTrue(csv.hasPrefix("Name,OpenAlex ID,Shared Works,Roster Partners,Partner Names,Last Shared Year\n"))
+        XCTAssertTrue(csv.contains("\"Ruiz, Xena\",X1,1,1,Alice (1),2022\n"))
+    }
+}
+
 final class NetworkLayoutTests: XCTestCase {
     private func ids(_ n: Int) -> [UUID] { (0..<n).map { _ in UUID() } }
 

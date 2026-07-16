@@ -40,6 +40,14 @@ struct ExportView: View {
                     MetricsEngine.coauthorshipCSV(network: store.coauthorNetwork)
                 }
                 exportRow(
+                    "External Collaborators",
+                    detail: "One row per non-roster coauthor: shared works, roster partners, last shared year.",
+                    filename: "external_collaborators.csv",
+                    disabled: store.externalCollaborators.isEmpty
+                ) {
+                    MetricsEngine.externalCollaboratorsCSV(store.externalCollaborators)
+                }
+                exportRow(
                     "Roster with Resolutions",
                     detail: "The imported roster plus each member's resolved OpenAlex ID.",
                     filename: "roster_resolved.csv",

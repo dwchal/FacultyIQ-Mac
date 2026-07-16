@@ -78,6 +78,42 @@ final class AppStore: ObservableObject {
             roster: filteredRoster, resolutions: resolutions, personData: personData)
     }
 
+    /// Frequent non-roster coauthors, computed from cached works. Exclusions
+    /// consider the full roster so other divisions never appear as external.
+    var externalCollaborators: [ExternalCollaborator] {
+        MetricsEngine.externalCollaborators(
+            roster: filteredRoster, fullRoster: roster,
+            resolutions: resolutions, personData: personData)
+    }
+
+    /// Author details (affiliation, h-index) for external collaborators,
+    /// fetched on demand. Session-only; the HTTP layer caches to disk anyway.
+    @Published var externalAuthorDetails: [String: AuthorCandidate] = [:]
+
+    /// Fill in externalAuthorDetails for the given author IDs.
+    func fetchExternalAuthorDetails(ids: [String]) async {
+        let missing = ids.filter { externalAuthorDetails[$0] == nil }
+        guard !missing.isEmpty, !isBusy else { return }
+        isBusy = true
+        defer {
+            progress = nil
+            progressText = ""
+            isBusy = false
+        }
+        do {
+            for start in stride(from: 0, to: missing.count, by: 50) {
+                progress = Double(start) / Double(missing.count)
+                progressText = "Fetching collaborator details (\(start + 1)–\(min(start + 50, missing.count)) of \(missing.count))…"
+                let chunk = Array(missing[start..<min(start + 50, missing.count)])
+                for author in try await client.authors(ids: chunk) {
+                    externalAuthorDetails[author.openalexID] = author
+                }
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     func resolution(for member: FacultyMember) -> Resolution? {
         resolutions[member.id]
     }

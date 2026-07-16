@@ -257,6 +257,28 @@ struct CoauthorNetwork {
     var staleAuthorData: Bool    // some member's works predate authorship tracking
 }
 
+/// An author who appears on roster members' works but is not on the roster —
+/// a collaborator outside the division.
+struct ExternalCollaborator: Identifiable, Hashable {
+    /// One roster member this external author publishes with.
+    struct Partner: Identifiable, Hashable {
+        var memberID: UUID
+        var name: String
+        var weight: Int          // distinct shared works with this member
+
+        var id: UUID { memberID }
+    }
+
+    var openalexID: String
+    var displayName: String
+    var sharedWorks: Int         // distinct roster works this author appears on
+    var partners: [Partner]      // sorted by weight desc, then name
+    var lastSharedYear: Int?     // most recent shared work's year
+
+    var partnerCount: Int { partners.count }
+    var id: String { openalexID }
+}
+
 struct PromotionCandidate: Identifiable {
     var metrics: PersonMetrics
     var currentRank: AcademicRank

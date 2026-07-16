@@ -57,6 +57,34 @@ actor OpenAlexClient {
         }
     }
 
+    /// Batch-fetch author records by short OpenAlex ID. OpenAlex allows up to
+    /// 50 OR-ed values per filter, so requests go out in chunks of 50. The
+    /// authors list endpoint sometimes returns empty results (observed during
+    /// OpenAlex backend migrations), so IDs the batch misses are retried
+    /// individually via the single-author route; unresolvable IDs are skipped.
+    func authors(ids: [String]) async throws -> [AuthorCandidate] {
+        var found: [String: AuthorCandidate] = [:]
+        for start in stride(from: 0, to: ids.count, by: 50) {
+            let chunk = ids[start..<min(start + 50, ids.count)]
+            let url = endpoint("authors", query: [
+                URLQueryItem(name: "filter", value: "ids.openalex:" + chunk.joined(separator: "|")),
+                URLQueryItem(name: "per-page", value: String(chunk.count)),
+            ])
+            if let list: OAList<OAAuthor> = try? await fetch(url) {
+                for author in list.results {
+                    found[author.id.shortOpenAlexID] = author.candidate
+                }
+            }
+        }
+        for id in ids where found[id] == nil {
+            let url = endpoint("authors/\(id.shortOpenAlexID)", query: [])
+            if let author: OAAuthor = try? await fetch(url) {
+                found[id] = author.candidate
+            }
+        }
+        return ids.compactMap { found[$0] }
+    }
+
     func author(id openalexID: String, bypassCache: Bool = false) async throws -> AuthorProfile {
         let url = endpoint("authors/\(openalexID.shortOpenAlexID)", query: [])
         let author: OAAuthor = try await fetch(url, bypassCache: bypassCache)

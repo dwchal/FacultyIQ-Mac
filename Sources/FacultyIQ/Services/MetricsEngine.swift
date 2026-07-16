@@ -235,6 +235,80 @@ enum MetricsEngine {
         return CoauthorNetwork(nodes: nodes, edges: edges, staleAuthorData: staleAuthorData)
     }
 
+    // MARK: External collaborators
+
+    /// Authors on roster members' works who are not themselves on the roster.
+    /// Exclusion is by resolved OpenAlex ID across `fullRoster` (not just the
+    /// division-filtered `roster`, so members of other divisions never appear
+    /// as "external"), plus a normalized-name match so unresolved roster
+    /// members don't list themselves.
+    static func externalCollaborators(roster: [FacultyMember],
+                                      fullRoster: [FacultyMember]? = nil,
+                                      resolutions: [UUID: Resolution],
+                                      personData: [UUID: PersonData]) -> [ExternalCollaborator] {
+        let eligible = roster.filter { resolutions[$0.id] != nil && personData[$0.id] != nil }
+        let everyone = fullRoster ?? roster
+        let rosterAuthorIDs = Set(everyone.compactMap { resolutions[$0.id]?.openalexID })
+        let rosterNameKeys = Set(
+            everyone.map { nameKey($0.name) } +
+            everyone.compactMap { resolutions[$0.id].map { nameKey($0.displayName) } }
+        ).subtracting([""])
+
+        var displayName: [String: String] = [:]
+        var workIDs: [String: Set<String>] = [:]
+        var partnerWorkIDs: [String: [UUID: Set<String>]] = [:]
+        var lastYear: [String: Int] = [:]
+        for member in eligible {
+            for work in personData[member.id]!.works {
+                for author in work.authors ?? [] {
+                    guard !rosterAuthorIDs.contains(author.openalexID),
+                          !rosterNameKeys.contains(nameKey(author.displayName)) else { continue }
+                    let id = author.openalexID
+                    // Keep the longest name variant seen (most complete form).
+                    if author.displayName.count > (displayName[id]?.count ?? 0) {
+                        displayName[id] = author.displayName
+                    }
+                    workIDs[id, default: []].insert(work.id)
+                    partnerWorkIDs[id, default: [:]][member.id, default: []].insert(work.id)
+                    if let year = work.year {
+                        lastYear[id] = max(lastYear[id] ?? year, year)
+                    }
+                }
+            }
+        }
+
+        let memberName = Dictionary(uniqueKeysWithValues: eligible.map { ($0.id, $0.name) })
+        return workIDs
+            .map { id, works in
+                let partners = (partnerWorkIDs[id] ?? [:])
+                    .map { memberID, shared in
+                        ExternalCollaborator.Partner(
+                            memberID: memberID,
+                            name: memberName[memberID] ?? "—",
+                            weight: shared.count)
+                    }
+                    .sorted { ($0.weight, $1.name) > ($1.weight, $0.name) }
+                return ExternalCollaborator(
+                    openalexID: id,
+                    displayName: displayName[id] ?? id,
+                    sharedWorks: works.count,
+                    partners: partners,
+                    lastSharedYear: lastYear[id])
+            }
+            .sorted { ($0.sharedWorks, $0.partnerCount, $1.displayName)
+                    > ($1.sharedWorks, $1.partnerCount, $0.displayName) }
+    }
+
+    /// Order-insensitive name key: lowercased, diacritic-folded word tokens,
+    /// single-letter initials dropped, sorted. "Doe, John A." == "John Doe".
+    static func nameKey(_ name: String) -> String {
+        name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .components(separatedBy: CharacterSet.letters.inverted)
+            .filter { $0.count > 1 }
+            .sorted()
+            .joined(separator: " ")
+    }
+
     // MARK: Rank benchmarks & promotion insight
 
     static func rankBenchmarks(metrics: [PersonMetrics]) -> [RankBenchmark] {
@@ -363,6 +437,21 @@ enum MetricsEngine {
                 csvEscape(nameByID[edge.memberA] ?? ""),
                 csvEscape(nameByID[edge.memberB] ?? ""),
                 String(edge.weight),
+            ].joined(separator: ","))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func externalCollaboratorsCSV(_ collaborators: [ExternalCollaborator]) -> String {
+        var lines = ["Name,OpenAlex ID,Shared Works,Roster Partners,Partner Names,Last Shared Year"]
+        for c in collaborators {
+            lines.append([
+                csvEscape(c.displayName),
+                c.openalexID,
+                String(c.sharedWorks),
+                String(c.partnerCount),
+                csvEscape(c.partners.map { "\($0.name) (\($0.weight))" }.joined(separator: "; ")),
+                c.lastSharedYear.map(String.init) ?? "",
             ].joined(separator: ","))
         }
         return lines.joined(separator: "\n") + "\n"

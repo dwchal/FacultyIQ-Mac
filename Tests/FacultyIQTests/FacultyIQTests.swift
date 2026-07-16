@@ -346,6 +346,167 @@ final class ExternalCollaboratorTests: XCTestCase {
     }
 }
 
+final class AuditTests: XCTestCase {
+    private func work(_ id: String, year: Int = 2020, cites: Int = 0, field: String? = nil,
+                      retracted: Bool? = nil, authors: [WorkAuthor]? = nil) -> Work {
+        Work(id: id, title: id, year: year, date: nil, type: nil, citedByCount: cites,
+             doi: nil, isOA: nil, oaStatus: nil, venue: nil, authors: authors,
+             topicField: field, isRetracted: retracted)
+    }
+
+    private func personData(works: [Work], profileWorks: Int? = nil,
+                            profileCites: Int? = nil, hIndex: Int? = nil) -> PersonData {
+        PersonData(
+            profile: AuthorProfile(openalexID: "A1", displayName: "", worksCount: profileWorks ?? works.count,
+                                   citedByCount: profileCites ?? works.map(\.citedByCount).reduce(0, +),
+                                   hIndex: hIndex, i10Index: nil, affiliation: nil, countsByYear: []),
+            works: works, fetchedAt: Date())
+    }
+
+    // MARK: Exclusions
+
+    func testApplyingExclusionsAdjustsCountsAndRecomputesIndexes() {
+        let data = personData(
+            works: [work("W1", cites: 100), work("W2", cites: 10), work("W3", cites: 1)],
+            profileWorks: 3, profileCites: 111, hIndex: 3)
+        let result = MetricsEngine.applyingExclusions(data, excluded: ["W1"])
+        XCTAssertEqual(result.works.map(\.id), ["W2", "W3"])
+        XCTAssertEqual(result.profile.worksCount, 2)
+        XCTAssertEqual(result.profile.citedByCount, 11)
+        XCTAssertNil(result.profile.hIndex)  // forces local recomputation
+        XCTAssertEqual(MetricsEngine.effectiveHIndex(result), 1)  // h of [10, 1]
+    }
+
+    func testApplyingExclusionsNoOpWhenEmpty() {
+        let data = personData(works: [work("W1", cites: 5)], hIndex: 1)
+        let result = MetricsEngine.applyingExclusions(data, excluded: [])
+        XCTAssertEqual(result.profile.hIndex, 1)
+        XCTAssertEqual(result.works.count, 1)
+    }
+
+    // MARK: Misattribution heuristic
+
+    func testSuspectWorksFlagRareFields() {
+        // 12 medicine + 1 economics: the isolated excursion is flagged.
+        let works = (1...12).map { work("M\($0)", field: "Medicine") }
+            + [work("E1", field: "Economics")]
+        XCTAssertEqual(MetricsEngine.suspectWorkIDs(works: works), ["E1"])
+        // A field with real presence (3 of 15) is not rare, so not flagged.
+        let mixed = (1...12).map { work("M\($0)", field: "Medicine") }
+            + (1...3).map { work("I\($0)", field: "Immunology and Microbiology") }
+        XCTAssertTrue(MetricsEngine.suspectWorkIDs(works: mixed).isEmpty)
+        // Fewer than 10 tagged works: too little signal.
+        XCTAssertTrue(MetricsEngine.suspectWorkIDs(works: Array(works.prefix(9))).isEmpty)
+    }
+
+    // MARK: Retractions
+
+    func testRetractedWorks() {
+        let member = FacultyMember(name: "Alice")
+        let data = personData(works: [work("W1", retracted: true), work("W2", retracted: false), work("W3")])
+        let found = MetricsEngine.retractedWorks(roster: [member], personData: [member.id: data])
+        XCTAssertEqual(found.map(\.work.id), ["W1"])
+        XCTAssertEqual(found.first?.memberName, "Alice")
+    }
+
+    // MARK: Authorship positions
+
+    func testAuthorshipSummaryAndSeries() {
+        let mine = { (position: AuthorPosition, corresponding: Bool) in
+            WorkAuthor(openalexID: "A1", displayName: "Me", position: position,
+                       isCorresponding: corresponding)
+        }
+        let data = personData(works: [
+            work("W1", year: 2023, authors: [mine(.first, true)]),
+            work("W2", year: 2024, authors: [mine(.last, false)]),
+            work("W3", year: 2024, authors: [mine(.last, true)]),
+            work("W4", year: 2024, authors: [WorkAuthor(openalexID: "A1", displayName: "Me")]), // untracked
+        ])
+        let summary = MetricsEngine.authorshipSummary(data: data, authorID: "A1")
+        XCTAssertEqual(summary.tracked, 3)
+        XCTAssertEqual(summary.first, 1)
+        XCTAssertEqual(summary.last, 2)
+        XCTAssertEqual(summary.corresponding, 2)
+
+        let series = MetricsEngine.authorshipByYear(data: data, authorID: "A1")
+        XCTAssertEqual(series.first { $0.year == 2024 && $0.position == .last }?.count, 2)
+        XCTAssertEqual(series.first { $0.year == 2023 && $0.position == .first }?.count, 1)
+    }
+
+    // MARK: Percentile rank
+
+    func testPercentileRank() {
+        XCTAssertEqual(MetricsEngine.percentileRank(of: 5, in: [1, 2, 3, 4]), 100)
+        XCTAssertEqual(MetricsEngine.percentileRank(of: 0, in: [1, 2, 3, 4]), 0)
+        XCTAssertEqual(MetricsEngine.percentileRank(of: 3, in: [1, 2, 3, 4]), 62.5) // 2 below + half a tie
+        XCTAssertEqual(MetricsEngine.percentileRank(of: 1, in: []), 0)
+    }
+
+    // MARK: Collaboration suggestions
+
+    func testCollaborationSuggestionsSkipConnectedPairs() {
+        let (a, b, c) = (FacultyMember(name: "Alice"), FacultyMember(name: "Bob"), FacultyMember(name: "Cara"))
+        func topical(_ prefix: String, _ topic: String, _ n: Int) -> [Work] {
+            (1...n).map { i in
+                Work(id: "\(prefix)\(i)", title: "", year: 2020, date: nil, type: nil,
+                     citedByCount: 0, doi: nil, isOA: nil, oaStatus: nil, venue: nil,
+                     topicName: topic)
+            }
+        }
+        let personData = [
+            a.id: self.personData(works: topical("A", "Endocarditis", 3)),
+            b.id: self.personData(works: topical("B", "Endocarditis", 4)),
+            c.id: self.personData(works: topical("C", "Endocarditis", 5)),
+        ]
+        // Alice–Bob already co-publish; only pairs with Cara are suggested.
+        let sorted = [a.id, b.id].sorted { $0.uuidString < $1.uuidString }
+        let network = CoauthorNetwork(
+            nodes: [], edges: [CoauthorEdge(memberA: sorted[0], memberB: sorted[1], weight: 2)],
+            staleAuthorData: false)
+        let suggestions = MetricsEngine.collaborationSuggestions(
+            roster: [a, b, c], personData: personData, network: network)
+        XCTAssertEqual(suggestions.count, 2)
+        XCTAssertTrue(suggestions.allSatisfy { $0.nameA == "Cara" || $0.nameB == "Cara" })
+        XCTAssertEqual(suggestions.first?.sharedTopics, ["Endocarditis"])
+        XCTAssertEqual(suggestions.map(\.score).max(), 4)  // Bob(4) vs Cara(5) → min 4
+    }
+
+    // MARK: Institution rollup
+
+    func testInstitutionRollupGroupsByFetchedAffiliation() {
+        let externals = [
+            ExternalCollaborator(openalexID: "X1", displayName: "Xena", sharedWorks: 5, partners: []),
+            ExternalCollaborator(openalexID: "X2", displayName: "Yuri", sharedWorks: 3, partners: []),
+            ExternalCollaborator(openalexID: "X3", displayName: "Zoe", sharedWorks: 9, partners: []),
+        ]
+        let details = [
+            "X1": AuthorCandidate(openalexID: "X1", displayName: "Xena", worksCount: 0,
+                                  citedByCount: 0, affiliation: "Duke University"),
+            "X2": AuthorCandidate(openalexID: "X2", displayName: "Yuri", worksCount: 0,
+                                  citedByCount: 0, affiliation: "Duke University"),
+            // X3 has no fetched details → left out.
+        ]
+        let rollup = MetricsEngine.institutionRollup(collaborators: externals, details: details)
+        XCTAssertEqual(rollup.count, 1)
+        XCTAssertEqual(rollup.first?.name, "Duke University")
+        XCTAssertEqual(rollup.first?.collaborators, 2)
+        XCTAssertEqual(rollup.first?.sharedWorks, 8)
+        XCTAssertEqual(rollup.first?.topNames, ["Xena", "Yuri"])
+        let csv = MetricsEngine.institutionRollupCSV(rollup)
+        XCTAssertTrue(csv.contains("Duke University,2,8,Xena; Yuri\n"))
+    }
+
+    // MARK: New Work fields survive old state files
+
+    func testDecodingOldStateWithoutNewFieldsYieldsNil() throws {
+        let json = #"{"id":"W1","title":"T","citedByCount":3,"authors":[{"openalexID":"A1","displayName":"X"}]}"#
+        let decoded = try JSONDecoder().decode(Work.self, from: Data(json.utf8))
+        XCTAssertNil(decoded.isRetracted)
+        XCTAssertNil(decoded.authors?.first?.position)
+        XCTAssertNil(decoded.authors?.first?.isCorresponding)
+    }
+}
+
 final class NetworkLayoutTests: XCTestCase {
     private func ids(_ n: Int) -> [UUID] { (0..<n).map { _ in UUID() } }
 

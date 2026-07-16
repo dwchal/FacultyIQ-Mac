@@ -134,14 +134,14 @@ struct PromotionView: View {
     }
 
     private func meanRCR(for memberID: UUID) -> Double? {
-        guard let data = store.personData[memberID] else { return nil }
+        guard let data = store.effectiveData(for: memberID) else { return nil }
         return MetricsEngine.meanRCR(works: data.works, icite: store.enrichment[memberID]?.icite)
     }
 
     /// Time-to-target estimate for the unmet checks, from the trailing
     /// five-year publication/citation pace.
     private func paceCaption(for progress: PromotionProgress) -> String? {
-        guard let data = store.personData[progress.metrics.memberID] else { return nil }
+        guard let data = store.effectiveData(for: progress.metrics.memberID) else { return nil }
         let projections = MetricsEngine.trajectoryProjections(data: data, promotion: progress)
         guard let longest = projections.map(\.yearsToTarget).max() else { return nil }
         if longest > 15 { return "At the current pace: 15+ years to the remaining targets" }

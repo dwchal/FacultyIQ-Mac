@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+@preconcurrency import UserNotifications
 
 /// Central app state: roster, identity resolutions, fetched data, and the
 /// async workflow operations. Persists itself as JSON in Application Support.
@@ -10,6 +11,11 @@ final class AppStore: ObservableObject {
     @Published var personData: [UUID: PersonData] = [:]
     @Published var enrichment: [UUID: Enrichment] = [:]
 
+    /// Works the user marked "not this member's" — misattributed by OpenAlex
+    /// disambiguation. Kept out of every metric but still listed (flagged) in
+    /// Publications so the exclusion can be undone.
+    @Published var excludedWorks: [UUID: Set<String>] = [:]
+
     /// Accumulated per-member changes from re-fetches, until reviewed.
     @Published var deltas: [UUID: RefreshDelta] = [:]
     @Published var lastUpdateCheck: Date?
@@ -19,7 +25,9 @@ final class AppStore: ObservableObject {
 
     /// Restricts every analysis tab (dashboard, profiles, promotion, network,
     /// export) to one division; nil shows everyone. Session-only, not persisted.
-    @Published var divisionFilter: String? = nil
+    @Published var divisionFilter: String? = nil {
+        didSet { invalidateDerived() }
+    }
 
     @Published var isBusy = false
     @Published var progressText = ""
@@ -35,6 +43,22 @@ final class AppStore: ObservableObject {
 
     // MARK: Derived state
 
+    /// Memoized derived values. Every data mutation funnels through save()
+    /// (and divisionFilter's didSet), which clears this — so the expensive
+    /// aggregations run once per data change instead of once per view update.
+    private var derived = DerivedCache()
+
+    private struct DerivedCache {
+        var effectivePersonData: [UUID: PersonData]?
+        var metrics: [PersonMetrics]?
+        var coauthorNetwork: CoauthorNetwork?
+        var externalCollaborators: [ExternalCollaborator]?
+    }
+
+    func invalidateDerived() {
+        derived = DerivedCache()
+    }
+
     /// Distinct divisions present in the roster, sorted.
     var divisions: [String] {
         Array(Set(roster.compactMap(\.division))).sorted()
@@ -46,12 +70,33 @@ final class AppStore: ObservableObject {
         return roster.filter { $0.division == filter }
     }
 
+    /// personData with each member's excluded works removed and headline
+    /// counts adjusted — what every metric and chart should consume. Raw
+    /// personData remains the source for the Publications list, where
+    /// excluded works stay visible so the exclusion can be undone.
+    var effectivePersonData: [UUID: PersonData] {
+        if let cached = derived.effectivePersonData { return cached }
+        let result = Dictionary(uniqueKeysWithValues: personData.map { id, data in
+            (id, MetricsEngine.applyingExclusions(data, excluded: excludedWorks[id] ?? []))
+        })
+        derived.effectivePersonData = result
+        return result
+    }
+
+    /// One member's data with exclusions applied.
+    func effectiveData(for memberID: UUID) -> PersonData? {
+        effectivePersonData[memberID]
+    }
+
     var filteredPersonData: [PersonData] {
-        filteredRoster.compactMap { personData[$0.id] }
+        filteredRoster.compactMap { effectivePersonData[$0.id] }
     }
 
     var metrics: [PersonMetrics] {
-        MetricsEngine.allMetrics(roster: filteredRoster, personData: personData)
+        if let cached = derived.metrics { return cached }
+        let result = MetricsEngine.allMetrics(roster: filteredRoster, personData: effectivePersonData)
+        derived.metrics = result
+        return result
     }
 
     var summary: DivisionSummary {
@@ -74,16 +119,37 @@ final class AppStore: ObservableObject {
     }
 
     var coauthorNetwork: CoauthorNetwork {
-        MetricsEngine.coauthorNetwork(
-            roster: filteredRoster, resolutions: resolutions, personData: personData)
+        if let cached = derived.coauthorNetwork { return cached }
+        let result = MetricsEngine.coauthorNetwork(
+            roster: filteredRoster, resolutions: resolutions, personData: effectivePersonData)
+        derived.coauthorNetwork = result
+        return result
     }
 
     /// Frequent non-roster coauthors, computed from cached works. Exclusions
     /// consider the full roster so other divisions never appear as external.
     var externalCollaborators: [ExternalCollaborator] {
-        MetricsEngine.externalCollaborators(
+        if let cached = derived.externalCollaborators { return cached }
+        let result = MetricsEngine.externalCollaborators(
             roster: filteredRoster, fullRoster: roster,
-            resolutions: resolutions, personData: personData)
+            resolutions: resolutions, personData: effectivePersonData)
+        derived.externalCollaborators = result
+        return result
+    }
+
+    // MARK: Work exclusion
+
+    func isWorkExcluded(_ workID: String, for memberID: UUID) -> Bool {
+        excludedWorks[memberID]?.contains(workID) ?? false
+    }
+
+    /// Toggle "not this member's paper". The work stays visible in
+    /// Publications but leaves every metric.
+    func setWorkExcluded(_ workID: String, for memberID: UUID, excluded: Bool) {
+        var set = excludedWorks[memberID] ?? []
+        if excluded { set.insert(workID) } else { set.remove(workID) }
+        excludedWorks[memberID] = set.isEmpty ? nil : set
+        save()
     }
 
     /// Author details (affiliation, h-index) for external collaborators,
@@ -153,6 +219,7 @@ final class AppStore: ObservableObject {
         personData = [:]
         enrichment = [:]
         deltas = [:]
+        excludedWorks = [:]
         divisionFilter = nil
         lastError = nil
         save()
@@ -174,6 +241,7 @@ final class AppStore: ObservableObject {
             personData[member.id] = nil
             enrichment[member.id] = nil
             deltas[member.id] = nil
+            excludedWorks[member.id] = nil
         }
         save()
     }
@@ -185,6 +253,7 @@ final class AppStore: ObservableObject {
             personData[id] = nil
             enrichment[id] = nil
             deltas[id] = nil
+            excludedWorks[id] = nil
         }
         save()
     }
@@ -195,6 +264,7 @@ final class AppStore: ObservableObject {
         personData = [:]
         enrichment = [:]
         deltas = [:]
+        excludedWorks = [:]
         divisionFilter = nil
         save()
     }
@@ -231,6 +301,7 @@ final class AppStore: ObservableObject {
             personData[member.id] = nil
             enrichment[member.id] = nil
             deltas[member.id] = nil
+            excludedWorks[member.id] = nil
         }
         resolutions[member.id] = Resolution(
             openalexID: candidate.openalexID,
@@ -247,6 +318,7 @@ final class AppStore: ObservableObject {
         personData[member.id] = nil
         enrichment[member.id] = nil
         deltas[member.id] = nil
+        excludedWorks[member.id] = nil
         save()
     }
 
@@ -330,6 +402,42 @@ final class AppStore: ObservableObject {
         }
         lastUpdateCheck = Date()
         save()
+    }
+
+    // MARK: Scheduled refresh
+
+    /// When switched on in Settings, re-check OpenAlex once the configured
+    /// interval has elapsed since the last check. Called at launch and on an
+    /// hourly heartbeat, so leaving the app running is enough.
+    func autoCheckIfDue() async {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "autoCheckEnabled"), !isBusy, !personData.isEmpty else { return }
+        let days = max(defaults.integer(forKey: "autoCheckIntervalDays"), 1)
+        if let last = lastUpdateCheck,
+           Date().timeIntervalSince(last) < Double(days) * 86_400 {
+            return
+        }
+        await checkForUpdates()
+        notifyAboutDeltas()
+    }
+
+    /// Post a user notification summarizing unreviewed changes. Silently does
+    /// nothing under `swift run`, where there is no app bundle to notify from.
+    private func notifyAboutDeltas() {
+        guard !deltas.isEmpty, Bundle.main.bundleIdentifier != nil else { return }
+        let changed = deltas.count
+        let newWorks = deltas.values.map(\.newWorkIDs.count).reduce(0, +)
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .badge]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "FacultyIQ found new activity"
+            content.body = newWorks > 0
+                ? "\(newWorks) new works across \(changed) members — review them in What's New."
+                : "Metrics moved for \(changed) members — review them in What's New."
+            center.add(UNNotificationRequest(
+                identifier: "facultyiq.whatsnew", content: content, trigger: nil))
+        }
     }
 
     /// Clear the accumulated deltas: the next check diffs against today's data.
@@ -488,6 +596,52 @@ final class AppStore: ObservableObject {
         save()
     }
 
+    // MARK: Peer benchmark cohort
+
+    /// Benchmark one member against a random OpenAlex sample of authors
+    /// active on their dominant topic (≥10 works each).
+    func fetchPeerCohort(for member: FacultyMember) async {
+        guard let data = effectiveData(for: member.id), !isBusy else { return }
+        guard let topicName = MetricsEngine.personTopics(data: data, limit: 1).first?.name else {
+            lastError = "\(member.name) has no topic-tagged works to match a cohort on — refresh works first."
+            return
+        }
+        isBusy = true
+        progressText = "Sampling peers on “\(topicName)”…"
+        defer {
+            progressText = ""
+            isBusy = false
+        }
+        do {
+            guard let topic = try await client.topic(named: topicName) else {
+                lastError = "OpenAlex couldn't find the topic “\(topicName)”."
+                return
+            }
+            let cohort = try await client.authorSample(topicID: topic.id)
+            guard cohort.count >= 20, cohort.map(\.worksCount).max() ?? 0 > 0 else {
+                lastError = "OpenAlex returned no usable cohort for “\(topic.name)” — its authors index may be degraded; try again later."
+                return
+            }
+            let m = MetricsEngine.personMetrics(member: member, data: data)
+            var entry = enrichment[member.id] ?? Enrichment()
+            entry.peerCohort = PeerCohortData(
+                topicName: topic.name,
+                topicID: topic.id,
+                cohortSize: cohort.count,
+                worksPercentile: MetricsEngine.percentileRank(
+                    of: m.worksCount, in: cohort.map(\.worksCount)),
+                citationsPercentile: MetricsEngine.percentileRank(
+                    of: m.citations, in: cohort.map(\.citedByCount)),
+                hIndexPercentile: MetricsEngine.percentileRank(
+                    of: m.hIndex, in: cohort.compactMap(\.hIndex)),
+                fetchedAt: Date())
+            enrichment[member.id] = entry
+            save()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     /// Run an async operation over members with progress reporting; individual
     /// failures are collected rather than aborting the batch.
     private func runBatch(label: String,
@@ -523,6 +677,7 @@ final class AppStore: ObservableObject {
         var enrichment: [UUID: Enrichment]?  // optional: absent in pre-enrichment state files
         var deltas: [UUID: RefreshDelta]?    // optional: absent in pre-what's-new state files
         var lastUpdateCheck: Date?
+        var excludedWorks: [UUID: Set<String>]?  // optional: absent in pre-exclusion state files
     }
 
     private var stateURL: URL {
@@ -530,9 +685,11 @@ final class AppStore: ObservableObject {
     }
 
     func save() {
+        invalidateDerived()
         let state = SavedState(roster: roster, resolutions: resolutions,
                                personData: personData, enrichment: enrichment,
-                               deltas: deltas, lastUpdateCheck: lastUpdateCheck)
+                               deltas: deltas, lastUpdateCheck: lastUpdateCheck,
+                               excludedWorks: excludedWorks.isEmpty ? nil : excludedWorks)
         do {
             try FileManager.default.createDirectory(
                 at: CacheStore.supportDirectory, withIntermediateDirectories: true)
@@ -552,5 +709,6 @@ final class AppStore: ObservableObject {
         enrichment = state.enrichment ?? [:]
         deltas = state.deltas ?? [:]
         lastUpdateCheck = state.lastUpdateCheck
+        excludedWorks = state.excludedWorks ?? [:]
     }
 }

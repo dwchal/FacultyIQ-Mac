@@ -71,7 +71,27 @@ individual profiles, coauthorship networks, and promotion insights.
   outside the roster, ranked by shared works, showing which roster members
   each one publishes with; affiliations and author metrics fetched on demand,
   plus a CSV export. Unresolved roster members are kept out of the list by
-  ID and by a normalized name match.
+  ID and by a normalized name match. An Institutions view groups externals
+  by affiliation — the strategic-partnership picture — with its own export.
+- **Work audit & exclusions** — OpenAlex author disambiguation isn't perfect;
+  every profile has an Audit Works sheet where misattributed papers can be
+  marked "not theirs" (persisted, survives refreshes) and drop out of every
+  metric, chart, benchmark, and export. Works in fields the member has barely
+  touched are flagged as review candidates.
+- **Retraction flags** — works OpenAlex marks retracted are badged in
+  profiles, listed on the Publications tab, and called out in the promotion
+  dossier PDF before it goes anywhere.
+- **Authorship positions** — first/middle/senior(last)/corresponding splits
+  per member with a position-by-year chart: the first-author → senior-author
+  transition at a glance.
+- **Field benchmark** — one click samples a random OpenAlex cohort of authors
+  on the member's dominant topic (≥10 works each) and shows the member's
+  works/citations/h-index percentiles within it — external context the
+  in-division benchmarks can't give.
+- **Suggested collaborations** — the Network tab lists member pairs who
+  publish on the same topics but have never co-published.
+- **Automatic updates** — optional scheduled re-checks (daily/weekly/monthly)
+  while the app is open, with a notification when What's New has changes.
 - **Divisions** — filter every analysis tab (and the exports) to one
   division/department from the toolbar; benchmarks and targets recompute
   within the selection.

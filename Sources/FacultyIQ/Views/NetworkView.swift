@@ -170,6 +170,9 @@ struct NetworkView: View {
 
     private func topPairs(_ network: CoauthorNetwork) -> some View {
         let nameByID = Dictionary(uniqueKeysWithValues: network.nodes.map { ($0.memberID, $0.name) })
+        let suggestions = MetricsEngine.collaborationSuggestions(
+            roster: store.filteredRoster, personData: store.effectivePersonData,
+            network: network, limit: 6)
         return VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Top Collaborations").font(.headline)
@@ -177,14 +180,34 @@ struct NetworkView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            List(Array(network.edges.prefix(15))) { edge in
-                HStack {
-                    Text("\(nameByID[edge.memberA] ?? "—") · \(nameByID[edge.memberB] ?? "—")")
-                        .lineLimit(1)
-                    Spacer()
-                    Text("\(edge.weight)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
+            List {
+                ForEach(Array(network.edges.prefix(15))) { edge in
+                    HStack {
+                        Text("\(nameByID[edge.memberA] ?? "—") · \(nameByID[edge.memberB] ?? "—")")
+                            .lineLimit(1)
+                        Spacer()
+                        Text("\(edge.weight)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                if !suggestions.isEmpty {
+                    Section {
+                        ForEach(suggestions) { suggestion in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("\(suggestion.nameA) · \(suggestion.nameB)")
+                                    .lineLimit(1)
+                                Text(suggestion.sharedTopics.joined(separator: " · "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .help("Both publish on these topics but have never co-published (overlap score \(suggestion.score))")
+                        }
+                    } header: {
+                        Text("Suggested — same topics, never co-published")
+                            .font(.caption)
+                    }
                 }
             }
             .listStyle(.plain)

@@ -91,11 +91,35 @@ actor OpenAlexClient {
         return author.profile
     }
 
+    /// Resolve a topic name to its OpenAlex topic ID via search.
+    func topic(named name: String) async throws -> (id: String, name: String)? {
+        let url = endpoint("topics", query: [
+            URLQueryItem(name: "search", value: name),
+            URLQueryItem(name: "per-page", value: "1"),
+        ])
+        let list: OAList<OATopic> = try await fetch(url)
+        return list.results.first.map { ($0.id.shortOpenAlexID, $0.displayName) }
+    }
+
+    /// A random sample of authors active on a topic (≥10 works), for peer
+    /// percentile benchmarks. The seed keeps the sample reproducible so the
+    /// response cache stays useful.
+    func authorSample(topicID: String, size: Int = 200) async throws -> [AuthorCandidate] {
+        let url = endpoint("authors", query: [
+            URLQueryItem(name: "filter", value: "topics.id:\(topicID),works_count:>9"),
+            URLQueryItem(name: "sample", value: String(size)),
+            URLQueryItem(name: "seed", value: "42"),
+            URLQueryItem(name: "per-page", value: String(min(size, 200))),
+        ])
+        let list: OAList<OAAuthor> = try await fetch(url)
+        return list.results.map { $0.candidate }
+    }
+
     /// All works for an author, cursor-paginated, most-cited first.
     func works(authorID: String, limit: Int = 2000, bypassCache: Bool = false) async throws -> [Work] {
         var works: [Work] = []
         var cursor: String? = "*"
-        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships,primary_topic"
+        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships,primary_topic,is_retracted"
 
         while let c = cursor, works.count < limit {
             let url = endpoint("works", query: [
@@ -227,6 +251,11 @@ private struct OAAuthor: Decodable {
     }
 }
 
+private struct OATopic: Decodable {
+    var id: String
+    var displayName: String
+}
+
 private struct OAWork: Decodable {
     struct OpenAccess: Decodable {
         var isOa: Bool?
@@ -244,6 +273,8 @@ private struct OAWork: Decodable {
             var displayName: String?
         }
         var author: Author?
+        var authorPosition: String?  // "first" | "middle" | "last"
+        var isCorresponding: Bool?
     }
     struct Ids: Decodable {
         var pmid: String?        // URL form: https://pubmed.ncbi.nlm.nih.gov/123456
@@ -268,6 +299,7 @@ private struct OAWork: Decodable {
     var primaryLocation: Location?
     var authorships: [Authorship]?
     var primaryTopic: PrimaryTopic?
+    var isRetracted: Bool?
 
     var work: Work {
         Work(
@@ -287,11 +319,14 @@ private struct OAWork: Decodable {
                     guard let authorID = entry.author?.id else { return nil }
                     return WorkAuthor(
                         openalexID: authorID.shortOpenAlexID,
-                        displayName: entry.author?.displayName ?? "")
+                        displayName: entry.author?.displayName ?? "",
+                        position: entry.authorPosition.flatMap(AuthorPosition.init),
+                        isCorresponding: entry.isCorresponding)
                 }
             },
             topicName: primaryTopic?.displayName,
-            topicField: primaryTopic?.field?.displayName
+            topicField: primaryTopic?.field?.displayName,
+            isRetracted: isRetracted
         )
     }
 }

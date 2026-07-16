@@ -14,11 +14,19 @@ struct FacultyIQApp: App {
         }
     }
 
+    /// Hourly heartbeat for the Settings-controlled automatic update check;
+    /// autoCheckIfDue() itself decides whether a check is actually due.
+    private let autoCheckTimer = Timer.publish(every: 3600, on: .main, in: .common).autoconnect()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
                 .frame(minWidth: 980, minHeight: 640)
+                .task { await store.autoCheckIfDue() }
+                .onReceive(autoCheckTimer) { _ in
+                    Task { await store.autoCheckIfDue() }
+                }
         }
         .defaultSize(width: 1200, height: 780)
 

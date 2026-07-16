@@ -70,12 +70,28 @@ struct S2Data: Codable, Hashable {
     var fetchedAt: Date
 }
 
+// MARK: - Peer benchmark cohort
+
+/// Where a member stands within a random OpenAlex sample of authors active on
+/// their dominant topic — field-wide context the division's internal
+/// benchmarks can't give.
+struct PeerCohortData: Codable, Hashable {
+    var topicName: String
+    var topicID: String          // OpenAlex topic, e.g. "T10624"
+    var cohortSize: Int
+    var worksPercentile: Double  // member's standing in the cohort, 0…100
+    var citationsPercentile: Double
+    var hIndexPercentile: Double
+    var fetchedAt: Date
+}
+
 // MARK: - Container
 
 struct Enrichment: Codable, Hashable {
     var icite: ICiteData?
     var grants: GrantData?
     var semanticScholar: S2Data?
+    var peerCohort: PeerCohortData?
 
     /// Core project numbers the user removed by hand (RePORTER name matching
     /// occasionally attaches someone else's grant). Kept separate from

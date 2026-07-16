@@ -9,6 +9,13 @@ struct ExternalCollaboratorsView: View {
     @State private var minShared = 2
     @State private var selectedID: String?
     @State private var sortOrder = [KeyPathComparator(\Row.sharedWorks, order: .reverse)]
+    @State private var grouping: Grouping = .people
+    @State private var institutionSort = [KeyPathComparator(\MetricsEngine.InstitutionRollup.sharedWorks, order: .reverse)]
+
+    enum Grouping: String, CaseIterable {
+        case people = "People"
+        case institutions = "Institutions"
+    }
 
     /// Flattened row so every column, including fetched details, is sortable.
     fileprivate struct Row: Identifiable {
@@ -66,11 +73,72 @@ struct ExternalCollaboratorsView: View {
             }
             controls(all: all, shown: rows)
             Divider()
-            HSplitView {
-                table(rows)
-                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
-                sidebar(all)
-                    .frame(minWidth: 230, maxWidth: 330)
+            if grouping == .institutions {
+                institutionsContent(all)
+            } else {
+                HSplitView {
+                    table(rows)
+                        .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                    sidebar(all)
+                        .frame(minWidth: 230, maxWidth: 330)
+                }
+            }
+        }
+    }
+
+    // MARK: Institution rollup
+
+    /// Externals grouped by last known institution — the strategic-partnership
+    /// view. Needs fetched details, so coverage is reported up front.
+    @ViewBuilder
+    private func institutionsContent(_ all: [ExternalCollaborator]) -> some View {
+        let shown = all.filter { $0.sharedWorks >= minShared }
+        let withDetails = shown.count { store.externalAuthorDetails[$0.openalexID] != nil }
+        let rollup = MetricsEngine.institutionRollup(
+            collaborators: shown, details: store.externalAuthorDetails)
+            .filter {
+                search.trimmingCharacters(in: .whitespaces).isEmpty
+                    || $0.name.localizedCaseInsensitiveContains(search)
+                    || $0.topNames.contains { $0.localizedCaseInsensitiveContains(search) }
+            }
+        if withDetails == 0 {
+            ContentUnavailableView {
+                Label("No Affiliations Fetched", systemImage: "building.2")
+            } description: {
+                Text("Institution grouping needs author details — click Fetch Affiliations above.")
+            }
+        } else {
+            VStack(spacing: 0) {
+                if withDetails < shown.count {
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                        Text("Affiliations fetched for \(withDetails) of \(shown.count) listed collaborators — the rollup covers those.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.quaternary.opacity(0.5))
+                }
+                Table(rollup.sorted(using: institutionSort), sortOrder: $institutionSort) {
+                    TableColumn("Institution", value: \.name)
+                        .width(min: 200)
+                    TableColumn("Collaborators", value: \.collaborators) { row in
+                        Text("\(row.collaborators)").monospacedDigit()
+                    }
+                    .width(90)
+                    TableColumn("Shared Works", value: \.sharedWorks) { row in
+                        Text("\(row.sharedWorks)").monospacedDigit()
+                    }
+                    .width(90)
+                    TableColumn("Top Collaborators") { row in
+                        Text(row.topNames.joined(separator: ", "))
+                            .foregroundStyle(.secondary)
+                    }
+                    .width(min: 160)
+                }
             }
         }
     }
@@ -105,6 +173,12 @@ struct ExternalCollaboratorsView: View {
     private func controls(all: [ExternalCollaborator], shown: [Row]) -> some View {
         let maxShared = all.map(\.sharedWorks).max() ?? 1
         return HStack(spacing: 16) {
+            Picker("", selection: $grouping) {
+                ForEach(Grouping.allCases, id: \.self) { Text($0.rawValue) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
             TextField("Filter by name or roster member", text: $search)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 260)

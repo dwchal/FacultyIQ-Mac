@@ -89,6 +89,13 @@ enum DossierPages {
                         .foregroundStyle(.secondary)
                 }
 
+                let retracted = data.works.count { $0.isRetracted == true }
+                if retracted > 0 {
+                    Text("⚠ \(retracted) \(retracted == 1 ? "work" : "works") attributed to this member \(retracted == 1 ? "is" : "are") flagged retracted by OpenAlex — review before submitting.")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ChartPalette.critical)
+                }
+
                 if let promotion {
                     readinessSection(promotion)
                 }
@@ -201,7 +208,8 @@ enum DossierPages {
                         .gridCellColumns(showRCR ? 6 : 5)
                     ForEach(works) { work in
                         GridRow {
-                            Text(work.title)
+                            Text((work.isRetracted == true ? "[RETRACTED] " : "") + work.title)
+                                .foregroundStyle(work.isRetracted == true ? ChartPalette.critical : Color.primary)
                                 .lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text(work.year.map(String.init) ?? "—")

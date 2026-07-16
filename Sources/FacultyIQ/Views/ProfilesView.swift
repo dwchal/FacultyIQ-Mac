@@ -44,7 +44,7 @@ struct ProfilesView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
-                    if let data = store.personData[member.id] {
+                    if let data = store.effectiveData(for: member.id) {
                         rowSparkline(data)
                     }
                 }
@@ -88,7 +88,7 @@ struct ProfilesView: View {
     @ViewBuilder
     private var detail: some View {
         if let member = membersWithData.first(where: { $0.id == selectedID }),
-           let data = store.personData[member.id] {
+           let data = store.effectiveData(for: member.id) {
             ProfileDetail(member: member, data: data,
                           resolution: store.resolution(for: member),
                           metrics: MetricsEngine.personMetrics(member: member, data: data),
@@ -119,6 +119,7 @@ private struct ProfileDetail: View {
     let history: [MetricSnapshot]
     @State private var worksSort = [KeyPathComparator(\Work.citedByCount, order: .reverse)]
     @State private var showGrantsSheet = false
+    @State private var showAuditSheet = false
     @AppStorage("enableReporter") private var reporterEnabled = false
 
     var body: some View {
@@ -126,9 +127,12 @@ private struct ProfileDetail: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 metricGrid
+                dataQualityCard
+                peerBenchmarkCard
                 promotionCard
                 fundingCard
                 trendChart
+                authorshipCard
                 trajectoryCard
                 historyCard
                 topWorks
@@ -137,6 +141,157 @@ private struct ProfileDetail: View {
         }
         .sheet(isPresented: $showGrantsSheet) {
             GrantsConfirmSheet(member: member)
+        }
+        .sheet(isPresented: $showAuditSheet) {
+            WorksAuditSheet(member: member)
+        }
+    }
+
+    // MARK: Data quality
+
+    /// Exclusion state, misattribution candidates, and retractions — the
+    /// signals that decide whether the metrics above can be trusted.
+    @ViewBuilder
+    private var dataQualityCard: some View {
+        let raw = store.personData[member.id]?.works ?? []
+        let excluded = store.excludedWorks[member.id]?.count ?? 0
+        let suspects = MetricsEngine.suspectWorkIDs(works: raw)
+            .subtracting(store.excludedWorks[member.id] ?? [])
+        let retracted = data.works.count { $0.isRetracted == true }
+        if excluded > 0 || !suspects.isEmpty || retracted > 0 {
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Data Quality").font(.headline)
+                    Group {
+                        if excluded > 0 {
+                            Text("\(excluded) \(excluded == 1 ? "work" : "works") marked not \(member.name)'s — kept out of all metrics.")
+                        }
+                        if !suspects.isEmpty {
+                            Text("\(suspects.count) \(suspects.count == 1 ? "work differs" : "works differ") from the usual field — possible OpenAlex misattributions.")
+                        }
+                        if retracted > 0 {
+                            Text("\(retracted) \(retracted == 1 ? "work is" : "works are") flagged retracted by OpenAlex.")
+                                .foregroundStyle(ChartPalette.critical)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Audit Works…") { showAuditSheet = true }
+            }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        } else {
+            HStack {
+                Text("No misattribution or retraction flags on this profile.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Audit Works…") { showAuditSheet = true }
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    // MARK: Peer benchmark
+
+    @ViewBuilder
+    private var peerBenchmarkCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Field Benchmark").font(.headline)
+                    if let cohort = enrichment?.peerCohort {
+                        Text("vs \(cohort.cohortSize) OpenAlex authors publishing on \(cohort.topicName) (≥10 works each), sampled \(cohort.fetchedAt.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Percentile standing among a random sample of authors on this member's dominant topic — context the in-division benchmarks can't give.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Button(enrichment?.peerCohort == nil ? "Benchmark vs Field" : "Refresh") {
+                    Task { await store.fetchPeerCohort(for: member) }
+                }
+                .disabled(store.isBusy)
+            }
+            if let cohort = enrichment?.peerCohort {
+                HStack(spacing: 12) {
+                    percentileTile("Works", cohort.worksPercentile)
+                    percentileTile("Citations", cohort.citationsPercentile)
+                    percentileTile("h-index", cohort.hIndexPercentile)
+                }
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func percentileTile(_ label: String, _ percentile: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(Int(percentile.rounded()))th")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(percentile >= 50 ? ChartPalette.positive : Color.primary)
+            Text("\(label) percentile").font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: Authorship positions
+
+    /// First/middle/last split over time — the first-author → senior-author
+    /// transition promotion committees look for.
+    @ViewBuilder
+    private var authorshipCard: some View {
+        if let authorID = resolution?.openalexID {
+            let summary = MetricsEngine.authorshipSummary(data: data, authorID: authorID)
+            let series = MetricsEngine.authorshipByYear(data: data, authorID: authorID)
+            if summary.tracked > 0 {
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Authorship Position").font(.headline)
+                        Text("First author \(summary.first) · middle \(summary.middle) · senior (last) \(summary.last) · corresponding \(summary.corresponding), across \(summary.tracked) works with position data")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !series.isEmpty {
+                        Chart(series) { point in
+                            BarMark(
+                                x: .value("Year", point.year),
+                                y: .value("Works", point.count)
+                            )
+                            .foregroundStyle(by: .value("Position", positionLabel(point.position)))
+                        }
+                        .chartForegroundStyleScale([
+                            "First": ChartPalette.series1,
+                            "Middle": ChartPalette.series1Light,
+                            "Senior (last)": ChartPalette.series3,
+                        ])
+                        .yearXAxis(years: series.map(\.year))
+                        .frame(height: 160)
+                    }
+                    if summary.tracked < data.works.count {
+                        Text("\(data.works.count - summary.tracked) works predate position tracking — Refresh Data to include them.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(16)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    private func positionLabel(_ position: AuthorPosition) -> String {
+        switch position {
+        case .first: "First"
+        case .middle: "Middle"
+        case .last: "Senior (last)"
         }
     }
 
@@ -622,11 +777,18 @@ private struct ProfileDetail: View {
     @TableColumnBuilder<Work, KeyPathComparator<Work>>
     private var baseColumns: some TableColumnContent<Work, KeyPathComparator<Work>> {
         TableColumn("Title", value: \.title) { work in
-            if let doi = work.doi, let url = URL(string: doi) {
-                Link(work.title, destination: url)
-                    .foregroundStyle(.primary)
-            } else {
-                Text(work.title)
+            HStack(spacing: 4) {
+                if work.isRetracted == true {
+                    Image(systemName: "exclamationmark.octagon.fill")
+                        .foregroundStyle(ChartPalette.critical)
+                        .help("Flagged as retracted by OpenAlex")
+                }
+                if let doi = work.doi, let url = URL(string: doi) {
+                    Link(work.title, destination: url)
+                        .foregroundStyle(.primary)
+                } else {
+                    Text(work.title)
+                }
             }
         }
         TableColumn("Year", value: \.yearSort) { Text($0.year.map(String.init) ?? "—") }

@@ -89,9 +89,9 @@ struct DashboardView: View {
     private var kpiRow: some View {
         let s = store.summary
         let medianRCR = MetricsEngine.medianRCR(
-            roster: store.filteredRoster, personData: store.personData, enrichment: store.enrichment)
+            roster: store.filteredRoster, personData: store.effectivePersonData, enrichment: store.enrichment)
         let medianAPT = MetricsEngine.medianAPT(
-            roster: store.filteredRoster, personData: store.personData, enrichment: store.enrichment)
+            roster: store.filteredRoster, personData: store.effectivePersonData, enrichment: store.enrichment)
         let columns = 6 + (medianRCR == nil ? 0 : 1) + (medianAPT == nil ? 0 : 1)
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns), spacing: 12) {
             kpi("Faculty", "\(s.facultyCount)")
@@ -157,7 +157,7 @@ struct DashboardView: View {
     // Only rendered when iCite enrichment has produced APT scores.
     private var topTranslational: [MetricsEngine.TranslationalEntry] {
         MetricsEngine.topTranslational(
-            roster: store.filteredRoster, personData: store.personData, enrichment: store.enrichment)
+            roster: store.filteredRoster, personData: store.effectivePersonData, enrichment: store.enrichment)
     }
 
     private var translationalChart: some View {

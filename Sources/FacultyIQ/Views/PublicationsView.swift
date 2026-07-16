@@ -24,10 +24,50 @@ struct PublicationsView: View {
                         typesCard(types)
                         trendCard(types)
                     }
+                    retractionsCard
                     oaDetailCard
                     venuesCard
                 }
                 .padding(20)
+            }
+        }
+    }
+
+    /// Only appears when OpenAlex flags something — silence is the good news.
+    @ViewBuilder
+    private var retractionsCard: some View {
+        let retracted = MetricsEngine.retractedWorks(
+            roster: store.filteredRoster, personData: store.effectivePersonData)
+        if !retracted.isEmpty {
+            card("Retracted Works",
+                 subtitle: "\(retracted.count) works in the cohort are flagged retracted by OpenAlex") {
+                VStack(alignment: .leading, spacing: 6) {
+                    // A shared retracted work lists each affected member, so
+                    // work.id alone isn't unique here.
+                    ForEach(Array(retracted.prefix(10).enumerated()), id: \.offset) { _, entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "exclamationmark.octagon.fill")
+                                .foregroundStyle(ChartPalette.critical)
+                            VStack(alignment: .leading, spacing: 1) {
+                                if let doi = entry.work.doi, let url = URL(string: doi) {
+                                    Link(entry.work.title, destination: url)
+                                        .foregroundStyle(.primary)
+                                } else {
+                                    Text(entry.work.title)
+                                }
+                                Text("\(entry.memberName) · \(entry.work.year.map(String.init) ?? "—") · \(entry.work.venue ?? "—")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.callout)
+                    }
+                    if retracted.count > 10 {
+                        Text("+ \(retracted.count - 10) more")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }

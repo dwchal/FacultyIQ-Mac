@@ -21,7 +21,7 @@ struct ExportView: View {
                     disabled: store.metrics.isEmpty
                 ) {
                     MetricsEngine.metricsCSV(metrics: store.metrics, roster: store.filteredRoster,
-                                             personData: store.personData, enrichment: store.enrichment)
+                                             personData: store.effectivePersonData, enrichment: store.enrichment)
                 }
                 exportRow(
                     "Yearly Time Series",
@@ -29,7 +29,7 @@ struct ExportView: View {
                     filename: "faculty_yearly.csv",
                     disabled: store.filteredPersonData.isEmpty
                 ) {
-                    MetricsEngine.yearlyCSV(roster: store.filteredRoster, personData: store.personData)
+                    MetricsEngine.yearlyCSV(roster: store.filteredRoster, personData: store.effectivePersonData)
                 }
                 exportRow(
                     "Coauthorship Edges",
@@ -46,6 +46,18 @@ struct ExportView: View {
                     disabled: store.externalCollaborators.isEmpty
                 ) {
                     MetricsEngine.externalCollaboratorsCSV(store.externalCollaborators)
+                }
+                exportRow(
+                    "External Institutions",
+                    detail: "External collaborators grouped by institution — needs Fetch Affiliations on the External Collaborators tab first.",
+                    filename: "external_institutions.csv",
+                    disabled: MetricsEngine.institutionRollup(
+                        collaborators: store.externalCollaborators,
+                        details: store.externalAuthorDetails).isEmpty
+                ) {
+                    MetricsEngine.institutionRollupCSV(MetricsEngine.institutionRollup(
+                        collaborators: store.externalCollaborators,
+                        details: store.externalAuthorDetails))
                 }
                 exportRow(
                     "Roster with Resolutions",
@@ -136,7 +148,7 @@ struct ExportView: View {
             .frame(maxWidth: 200)
             Button("Save as PDF…") {
                 guard let member = membersWithData.first(where: { $0.id == dossierMemberID }),
-                      let data = store.personData[member.id] else { return }
+                      let data = store.effectiveData(for: member.id) else { return }
                 save(defaultName: "\(sanitize(member.name))_dossier.pdf", type: .pdf) { url in
                     try PDFComposer.write(
                         pages: DossierPages.pages(

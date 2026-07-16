@@ -131,11 +131,18 @@ struct Work: Identifiable, Codable, Hashable {
     var authors: [WorkAuthor]?   // nil = fetched before authorships were tracked
     var topicName: String? = nil  // OpenAlex primary topic; nil = untagged or pre-topic fetch
     var topicField: String? = nil // the field that topic belongs to (e.g. "Medicine")
+    var isRetracted: Bool? = nil  // nil = fetched before retraction was tracked
+}
+
+enum AuthorPosition: String, Codable, Hashable {
+    case first, middle, last
 }
 
 struct WorkAuthor: Codable, Hashable {
     var openalexID: String       // short form, e.g. "A5070446713"
     var displayName: String
+    var position: AuthorPosition? = nil   // nil = fetched before positions were tracked
+    var isCorresponding: Bool? = nil
 }
 
 struct PersonData: Codable, Hashable {

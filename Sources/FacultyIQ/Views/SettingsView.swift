@@ -6,6 +6,8 @@ struct SettingsView: View {
     @AppStorage("enableICite") private var enableICite = false
     @AppStorage("enableReporter") private var enableReporter = false
     @AppStorage("enableSemanticScholar") private var enableSemanticScholar = false
+    @AppStorage("autoCheckEnabled") private var autoCheckEnabled = false
+    @AppStorage("autoCheckIntervalDays") private var autoCheckIntervalDays = 7
     @State private var cacheInfo = CacheStore.shared.sizeDescription
 
     var body: some View {
@@ -33,6 +35,18 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("Automatic Updates") {
+                Toggle("Check for new activity automatically", isOn: $autoCheckEnabled)
+                Picker("Check every", selection: $autoCheckIntervalDays) {
+                    Text("Day").tag(1)
+                    Text("Week").tag(7)
+                    Text("Month").tag(30)
+                }
+                .disabled(!autoCheckEnabled)
+                Text("While the app is open, re-fetches everyone's data once the interval has passed and posts a notification when What's New has changes. Last check: \(lastCheckLabel).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Cache") {
                 LabeledContent("API response cache", value: cacheInfo)
                 Text("Responses are cached for 7 days in Application Support to minimize API traffic.")
@@ -57,6 +71,10 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var lastCheckLabel: String {
+        store.lastUpdateCheck.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "never"
     }
 
     private var historyInfo: String {

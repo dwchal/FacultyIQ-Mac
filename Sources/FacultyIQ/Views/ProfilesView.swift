@@ -530,6 +530,17 @@ private struct ProfileDetail: View {
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)
         }
+        typesLine
+    }
+
+    @ViewBuilder
+    private var typesLine: some View {
+        let types = MetricsEngine.personTypeCounts(data: data)
+        if !types.isEmpty {
+            Text("Types: " + types.map { "\($0.name) (\($0.works))" }.joined(separator: " · "))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var metricGrid: some View {
@@ -545,6 +556,10 @@ private struct ProfileDetail: View {
             if let rcr = MetricsEngine.meanRCR(works: data.works, icite: enrichment?.icite) {
                 tile("Mean RCR", String(format: "%.2f", rcr))
                     .help("Mean Relative Citation Ratio (NIH iCite): 1.0 is the NIH field-normalized average")
+            }
+            if let apt = MetricsEngine.meanAPT(works: data.works, icite: enrichment?.icite) {
+                tile("Mean APT", String(format: "%.2f", apt))
+                    .help("Mean Approximate Potential to Translate (NIH iCite), 0–1: works at 0.75+ are likely to be cited by clinical articles")
             }
             if let s2 = enrichment?.semanticScholar {
                 tile("Influential Citations", s2.influentialByDOI.values.reduce(0, +).formatted())
@@ -634,6 +649,12 @@ private struct ProfileDetail: View {
             Text(iciteMetric(work)?.nihPercentile.map { String(format: "%.0f", $0) } ?? "—")
         }
         .width(55)
+        TableColumn("APT") { (work: Work) in
+            Text(iciteMetric(work)?.apt.map { String(format: "%.2f", $0) } ?? "—")
+                .foregroundStyle(iciteMetric(work)?.apt == nil ? Color.secondary : .primary)
+                .help("Approximate Potential to Translate (NIH iCite), 0–1")
+        }
+        .width(45)
         TableColumn("Infl.") { (work: Work) in
             Text(work.doi
                 .flatMap { enrichment?.semanticScholar?.influentialByDOI[$0.bareDOI] }

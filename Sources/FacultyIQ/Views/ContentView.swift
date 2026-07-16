@@ -8,6 +8,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case profiles = "Faculty Profiles"
     case promotion = "Promotion Insights"
     case topics = "Topics"
+    case publications = "Publications"
     case funding = "Funding"
     case network = "Network"
     case export = "Export"
@@ -23,6 +24,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .profiles: "person.text.rectangle"
         case .promotion: "arrow.up.right.circle"
         case .topics: "tag"
+        case .publications: "doc.text"
         case .funding: "dollarsign.circle"
         case .network: "point.3.connected.trianglepath.dotted"
         case .export: "square.and.arrow.up"
@@ -75,6 +77,7 @@ struct ContentView: View {
         case .profiles: ProfilesView()
         case .promotion: PromotionView()
         case .topics: TopicsView()
+        case .publications: PublicationsView()
         case .funding: FundingView()
         case .network: NetworkView()
         case .export: ExportView()
@@ -85,7 +88,8 @@ struct ContentView: View {
     /// their own workflow toolbars.
     private var showsRefresh: Bool {
         switch selection ?? .roster {
-        case .dashboard, .whatsNew, .profiles, .promotion, .topics, .funding, .network, .export: true
+        case .dashboard, .whatsNew, .profiles, .promotion, .topics, .publications, .funding,
+             .network, .export: true
         case .roster, .resolution: false
         }
     }

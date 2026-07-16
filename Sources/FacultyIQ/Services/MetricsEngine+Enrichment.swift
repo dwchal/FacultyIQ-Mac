@@ -27,6 +27,65 @@ extension MetricsEngine {
         return means.isEmpty ? nil : means.median
     }
 
+    /// Mean Approximate Potential to Translate (0…1) across the works iCite
+    /// scored; nil when no works carry APT data.
+    static func meanAPT(works: [Work], icite: ICiteData?) -> Double? {
+        guard let icite else { return nil }
+        let values = works.compactMap { work in
+            work.pmid.flatMap { icite.byPMID[$0]?.apt }
+        }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    /// Median of the per-person mean APTs in view; nil when no one has data.
+    static func medianAPT(roster: [FacultyMember],
+                          personData: [UUID: PersonData],
+                          enrichment: [UUID: Enrichment]) -> Double? {
+        let means = roster.compactMap { member in
+            personData[member.id].flatMap {
+                meanAPT(works: $0.works, icite: enrichment[member.id]?.icite)
+            }
+        }
+        return means.isEmpty ? nil : means.median
+    }
+
+    /// iCite's "likely to translate" bucket: works with APT at or above this
+    /// are more likely than not to be cited by a clinical article.
+    static let highAPTThreshold = 0.75
+
+    struct TranslationalEntry: Identifiable {
+        var memberID: UUID
+        var name: String
+        var meanAPT: Double
+        var highAPTWorks: Int    // works with apt >= highAPTThreshold
+        var scoredWorks: Int     // works iCite returned an APT for
+
+        var id: UUID { memberID }
+    }
+
+    /// Members ranked by mean APT; empty when no one has iCite data, so
+    /// views gate on isEmpty.
+    static func topTranslational(roster: [FacultyMember],
+                                 personData: [UUID: PersonData],
+                                 enrichment: [UUID: Enrichment]) -> [TranslationalEntry] {
+        roster.compactMap { member -> TranslationalEntry? in
+            guard let data = personData[member.id],
+                  let icite = enrichment[member.id]?.icite else { return nil }
+            let values = data.works.compactMap { work in
+                work.pmid.flatMap { icite.byPMID[$0]?.apt }
+            }
+            guard !values.isEmpty else { return nil }
+            return TranslationalEntry(
+                memberID: member.id,
+                name: member.name,
+                meanAPT: values.reduce(0, +) / Double(values.count),
+                highAPTWorks: values.count { $0 >= highAPTThreshold },
+                scoredWorks: values.count)
+        }
+        .sorted { ($0.meanAPT, $1.name) > ($1.meanAPT, $0.name) }
+    }
+
     // MARK: NIH funding
 
     /// NIH "R01-equivalent" research activity codes.
@@ -116,6 +175,82 @@ extension MetricsEngine {
                 .sorted { ($0.amount, $1.code) > ($1.amount, $0.code) },
             topFunded: topFunded.sorted { ($0.amount, $1.name) > ($1.amount, $0.name) }
         )
+    }
+
+    // MARK: Grant timeline
+
+    /// RePORTER project dates arrive as "2016-05-01T00:00:00" (no timezone
+    /// designator, so ISO8601DateFormatter rejects them) or occasionally as
+    /// bare "2016-05-01"; parse the date part alone.
+    private static let grantDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        return formatter
+    }()
+
+    static func parseGrantDate(_ raw: String?) -> Date? {
+        guard let raw, raw.count >= 10 else { return nil }
+        return grantDateFormatter.date(from: String(raw.prefix(10)))
+    }
+
+    /// One grant period on one member's timeline row. Multi-PI grants are
+    /// deliberately not deduplicated — each PI legitimately shows the shared
+    /// award on their own row (unlike the deduplicated division totals).
+    struct GrantBar: Identifiable {
+        var memberName: String
+        var grant: Grant
+        var start: Date
+        var end: Date
+        var approximate: Bool    // a bound was derived from fiscal years alone
+        var isActive: Bool       // start <= asOf <= end
+        var expiresSoon: Bool    // isActive && end within 12 months of asOf
+
+        var id: String { "\(memberName)|\(grant.coreProjectNum)" }
+    }
+
+    /// Timeline bars for every attached grant with a resolvable period,
+    /// sorted by member name then start date. When project dates are missing,
+    /// the period is approximated from the fiscal-year span (Jan 1 of the
+    /// first FY through Dec 31 of the last) and flagged. By default only
+    /// grants still running at `asOf` are returned; `includeCompleted` adds
+    /// grants that ended within the trailing five years.
+    static func grantTimeline(roster: [FacultyMember],
+                              enrichment: [UUID: Enrichment],
+                              asOf now: Date = Date(),
+                              includeCompleted: Bool = false) -> [GrantBar] {
+        let calendar = Calendar(identifier: .gregorian)
+        let soonCutoff = calendar.date(byAdding: .month, value: 12, to: now) ?? now
+        let completedFloor = calendar.date(byAdding: .year, value: -5, to: now) ?? now
+
+        var bars: [GrantBar] = []
+        for member in roster {
+            for grant in enrichment[member.id]?.grants?.grants ?? [] {
+                var start = parseGrantDate(grant.startDate)
+                var end = parseGrantDate(grant.endDate)
+                var approximate = false
+                if start == nil || end == nil {
+                    guard let firstFY = grant.fiscalYears.first,
+                          let lastFY = grant.fiscalYears.last else { continue }
+                    approximate = true
+                    start = start ?? calendar.date(from: DateComponents(year: firstFY, month: 1, day: 1))
+                    end = end ?? calendar.date(from: DateComponents(year: lastFY, month: 12, day: 31))
+                }
+                guard let start, let end, start <= end else { continue }
+                guard includeCompleted ? end >= completedFloor : end >= now else { continue }
+                let isActive = start <= now && now <= end
+                bars.append(GrantBar(
+                    memberName: member.name,
+                    grant: grant,
+                    start: start,
+                    end: end,
+                    approximate: approximate,
+                    isActive: isActive,
+                    expiresSoon: isActive && end <= soonCutoff))
+            }
+        }
+        return bars.sorted { ($0.memberName, $0.start) < ($1.memberName, $1.start) }
     }
 
     static func grantsCSV(roster: [FacultyMember],

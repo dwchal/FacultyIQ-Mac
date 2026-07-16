@@ -148,6 +148,57 @@ final class EnrichmentMetricsTests: XCTestCase {
         XCTAssertNil(MetricsEngine.meanRCR(works: [work("W4", pmid: nil)], icite: icite))
     }
 
+    func testMeanAPTAndNilGating() {
+        let icite = ICiteData(byPMID: [
+            "1": WorkCitationMetrics(pmid: "1", rcr: nil, nihPercentile: nil, citationsPerYear: nil, apt: 0.95),
+            "2": WorkCitationMetrics(pmid: "2", rcr: nil, nihPercentile: nil, citationsPerYear: nil, apt: 0.05),
+            "3": WorkCitationMetrics(pmid: "3", rcr: 2.0, nihPercentile: nil, citationsPerYear: nil, apt: nil),
+        ], fetchedAt: Date())
+        let works = [work("W1", pmid: "1"), work("W2", pmid: "2"),
+                     work("W3", pmid: "3"), work("W4", pmid: nil)]
+        XCTAssertEqual(MetricsEngine.meanAPT(works: works, icite: icite)!, 0.5, accuracy: 0.001)
+        XCTAssertNil(MetricsEngine.meanAPT(works: works, icite: nil))
+        XCTAssertNil(MetricsEngine.meanAPT(works: [work("W3", pmid: "3")], icite: icite),
+                     "RCR without APT must not produce an APT")
+    }
+
+    func testTopTranslationalRanksAndGates() {
+        let alice = FacultyMember(name: "Alice")
+        let bob = FacultyMember(name: "Bob")
+        let carol = FacultyMember(name: "Carol")   // no iCite data
+        func data(_ works: [Work]) -> PersonData {
+            PersonData(profile: AuthorProfile(openalexID: "A", displayName: "", worksCount: 0,
+                                              citedByCount: 0, hIndex: nil, i10Index: nil,
+                                              affiliation: nil, countsByYear: []),
+                       works: works, fetchedAt: Date())
+        }
+        func icite(_ apts: [String: Double]) -> ICiteData {
+            ICiteData(byPMID: apts.mapValues {
+                WorkCitationMetrics(pmid: "", rcr: nil, nihPercentile: nil,
+                                    citationsPerYear: nil, apt: $0)
+            }, fetchedAt: Date())
+        }
+        let personData = [alice.id: data([work("W1", pmid: "1"), work("W2", pmid: "2")]),
+                          bob.id: data([work("W3", pmid: "3")]),
+                          carol.id: data([work("W4", pmid: "4")])]
+        let enrichment = [alice.id: Enrichment(icite: icite(["1": 0.9, "2": 0.5])),
+                          bob.id: Enrichment(icite: icite(["3": 0.95]))]
+
+        let top = MetricsEngine.topTranslational(roster: [alice, bob, carol],
+                                                 personData: personData,
+                                                 enrichment: enrichment)
+        XCTAssertEqual(top.map(\.name), ["Bob", "Alice"], "ranked by mean APT")
+        XCTAssertEqual(top[1].meanAPT, 0.7, accuracy: 0.001)
+        XCTAssertEqual(top[1].highAPTWorks, 1, "only the 0.9 work clears 0.75")
+        XCTAssertEqual(top[1].scoredWorks, 2)
+
+        XCTAssertTrue(MetricsEngine.topTranslational(roster: [carol], personData: personData,
+                                                     enrichment: [:]).isEmpty,
+                      "no iCite data anywhere → empty, so views can gate on isEmpty")
+        XCTAssertNil(MetricsEngine.medianAPT(roster: [carol], personData: personData,
+                                             enrichment: [:]))
+    }
+
     func testFundingSummary() {
         let year = MetricsEngine.currentYear
         let grants = [

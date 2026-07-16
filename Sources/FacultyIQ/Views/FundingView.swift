@@ -5,8 +5,15 @@ import SwiftUI
 /// activity code, and the most-funded faculty — from the grants attached via
 /// RePORTER on each member's profile.
 struct FundingView: View {
+    private enum FundingTab: String, CaseIterable {
+        case overview = "Overview"
+        case timeline = "Timeline"
+    }
+
     @EnvironmentObject private var store: AppStore
     @AppStorage("enableReporter") private var reporterEnabled = false
+    @State private var tab: FundingTab = .overview
+    @State private var showCompleted = false
 
     private var funding: MetricsEngine.DivisionFunding? {
         MetricsEngine.divisionFunding(roster: store.filteredRoster, enrichment: store.enrichment)
@@ -16,24 +23,38 @@ struct FundingView: View {
         if let funding {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if funding.missingFYBreakdown {
-                        breakdownBanner
+                    Picker("View", selection: $tab) {
+                        ForEach(FundingTab.allCases, id: \.self) { Text($0.rawValue) }
                     }
-                    kpiRow(funding)
-                    HStack(alignment: .top, spacing: 20) {
-                        fiscalYearCard(funding)
-                        activityCard(funding)
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 260)
+                    switch tab {
+                    case .overview: overviewSection(funding)
+                    case .timeline: timelineSection
                     }
-                    topFundedCard(funding)
-                    Text("Multi-PI projects shared by two roster members count once in the totals and charts. Amounts are summed NIH award dollars across the fiscal years RePORTER reports.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
                 .padding(20)
             }
         } else {
             emptyState
         }
+    }
+
+    @ViewBuilder
+    private func overviewSection(_ funding: MetricsEngine.DivisionFunding) -> some View {
+        if funding.missingFYBreakdown {
+            breakdownBanner
+        }
+        kpiRow(funding)
+        HStack(alignment: .top, spacing: 20) {
+            fiscalYearCard(funding)
+            activityCard(funding)
+        }
+        topFundedCard(funding)
+        Text("Multi-PI projects shared by two roster members count once in the totals and charts. Amounts are summed NIH award dollars across the fiscal years RePORTER reports.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     private var emptyState: some View {
@@ -165,6 +186,98 @@ struct FundingView: View {
             }
             .chartXAxis(.hidden)
             .frame(height: CGFloat(top.count) * 28)
+        }
+    }
+
+    // MARK: Grant timeline
+
+    private static let statusActive = "Active"
+    private static let statusExpiring = "Expiring ≤ 12 mo"
+    private static let statusEnded = "Ended"
+
+    private static let statusColors: [String: Color] = [
+        statusActive: ChartPalette.series1,
+        statusExpiring: ChartPalette.critical,
+        statusEnded: ChartPalette.series1Light,
+    ]
+
+    private func statusLabel(_ bar: MetricsEngine.GrantBar) -> String {
+        if bar.expiresSoon { return Self.statusExpiring }
+        return bar.isActive ? Self.statusActive : Self.statusEnded
+    }
+
+    private func rowLabel(_ bar: MetricsEngine.GrantBar) -> String {
+        "\(bar.memberName) — \(bar.grant.coreProjectNum)"
+    }
+
+    @ViewBuilder
+    private var timelineSection: some View {
+        let bars = MetricsEngine.grantTimeline(roster: store.filteredRoster,
+                                               enrichment: store.enrichment,
+                                               includeCompleted: showCompleted)
+        let expiring = bars.count(where: \.expiresSoon)
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+            kpi("Active", "\(bars.count(where: \.isActive))")
+            kpi("Expiring ≤ 12 mo", "\(expiring)")
+            kpi("Shown", "\(bars.count)")
+        }
+        timelineCard(bars)
+        Text("One row per PI, so multi-PI projects appear on each investigator's row (unlike the deduplicated Overview totals). Periods marked ≈ are approximated from fiscal years because RePORTER omitted the project dates.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private func timelineCard(_ bars: [MetricsEngine.GrantBar]) -> some View {
+        let statuses = [Self.statusExpiring, Self.statusActive, Self.statusEnded]
+            .filter { status in bars.contains { statusLabel($0) == status } }
+        card("Grant Periods", subtitle: showCompleted
+                ? "Project start to end per attached grant, including grants ended in the last 5 years"
+                : "Project start to end per attached grant, current and upcoming") {
+            if bars.isEmpty {
+                Text("No grants with a resolvable project period in view.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            } else {
+                Chart {
+                    ForEach(bars) { bar in
+                        BarMark(
+                            xStart: .value("Start", bar.start),
+                            xEnd: .value("End", bar.end),
+                            y: .value("Grant", rowLabel(bar)),
+                            height: .ratio(0.6)
+                        )
+                        .foregroundStyle(by: .value("Status", statusLabel(bar)))
+                        .cornerRadius(3)
+                        .annotation(position: .trailing, spacing: 4) {
+                            Text((bar.approximate ? "≈ " : "")
+                                 + bar.end.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    RuleMark(x: .value("Today", Date()))
+                        .foregroundStyle(.secondary)
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                }
+                .chartForegroundStyleScale(
+                    domain: statuses,
+                    range: statuses.map { Self.statusColors[$0] ?? .gray })
+                .chartYScale(domain: bars.map(rowLabel)) // keep name/start order, not alphabetical
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .year)) { _ in
+                        AxisGridLine()
+                        AxisTick()
+                        AxisValueLabel(format: .dateTime.year())
+                    }
+                }
+                // Per-row height plus room for the x-axis labels and legend,
+                // which render inside the chart frame.
+                .frame(height: CGFloat(bars.count) * 26 + 70)
+            }
+            Toggle("Show grants ended in the last 5 years", isOn: $showCompleted)
+                .toggleStyle(.checkbox)
+                .font(.callout)
         }
     }
 

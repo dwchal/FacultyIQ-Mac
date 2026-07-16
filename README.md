@@ -47,10 +47,18 @@ individual profiles, coauthorship networks, and promotion insights.
   OpenAlex primary topic: top topics (coauthored works counted once), decade
   trend lines for the leading topics, a sortable topic × field × faculty
   table, and each profile's top three topics.
+- **Publications** — the shape of the division's output, from each work's
+  OpenAlex metadata: publication-type breakdown (articles, reviews, book
+  chapters, …) with decade trend lines, per-year open-access status
+  composition (gold / hybrid / green / bronze / closed), a sortable venue ×
+  works × citations × faculty table, and each profile's top work types.
 - **Funding dashboard** — division-level rollup of the attached NIH grants:
   total awarded, funded faculty, active and R01-equivalent projects, awards by
   fiscal year and by activity code, and the most-funded faculty. Multi-PI
-  projects shared by roster members count once in the totals.
+  projects shared by roster members count once in the totals. A *Timeline*
+  view charts each PI's grant periods Gantt-style — today line, grants
+  expiring within 12 months highlighted, periods approximated from fiscal
+  years marked ≈ — with a toggle for recently ended grants.
 - **Tracked history** — every fetch records a dated per-author snapshot of
   works, citations, and h-index (in `snapshots.json`, keyed by author so it
   survives roster re-imports). Dashboard and profile charts plot the observed
@@ -74,8 +82,10 @@ individual profiles, coauthorship networks, and promotion insights.
   benchmarks), rendered as vector PDFs with selectable text.
 - **Data enrichment (optional)** — free, keyless sources toggled in Settings
   and fetched with the *Enrich Data* toolbar button:
-  - **NIH iCite** — Relative Citation Ratio and NIH percentile per
-    PubMed-indexed work, mean RCR per person, median RCR on the dashboard.
+  - **NIH iCite** — Relative Citation Ratio, NIH percentile, and Approximate
+    Potential to Translate per PubMed-indexed work; mean RCR and mean APT per
+    person; median RCR and APT plus a most-translational-faculty chart on the
+    dashboard.
   - **NIH RePORTER** — grant funding per confirmed principal investigator
     (activity codes, fiscal years, total awards, R01-equivalent count); name
     matches are confirmed via a search sheet since PI search is fuzzy, and a

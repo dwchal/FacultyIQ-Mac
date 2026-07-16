@@ -27,6 +27,11 @@ struct DashboardView: View {
                         oaChart
                         topFacultyChart
                     }
+                    if !topTranslational.isEmpty {
+                        HStack(alignment: .top, spacing: 20) {
+                            translationalChart
+                        }
+                    }
                     if history.count >= 2 {
                         historyRow
                     }
@@ -85,7 +90,9 @@ struct DashboardView: View {
         let s = store.summary
         let medianRCR = MetricsEngine.medianRCR(
             roster: store.filteredRoster, personData: store.personData, enrichment: store.enrichment)
-        let columns = medianRCR == nil ? 6 : 7
+        let medianAPT = MetricsEngine.medianAPT(
+            roster: store.filteredRoster, personData: store.personData, enrichment: store.enrichment)
+        let columns = 6 + (medianRCR == nil ? 0 : 1) + (medianAPT == nil ? 0 : 1)
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: columns), spacing: 12) {
             kpi("Faculty", "\(s.facultyCount)")
             kpi("Resolved", "\(s.resolvedCount)")
@@ -96,6 +103,10 @@ struct DashboardView: View {
             if let medianRCR {
                 kpi("Median RCR", String(format: "%.2f", medianRCR))
                     .help("Median of each member's mean Relative Citation Ratio (NIH iCite)")
+            }
+            if let medianAPT {
+                kpi("Median APT", String(format: "%.2f", medianAPT))
+                    .help("Median of each member's mean Approximate Potential to Translate (NIH iCite), 0–1")
             }
         }
     }
@@ -140,6 +151,35 @@ struct DashboardView: View {
     private var topFacultyChart: some View {
         chartCard("Most-Cited Faculty", subtitle: "Total citations, top 10") {
             TopFacultyChart(metrics: Array(store.metrics.sorted { $0.citations > $1.citations }.prefix(10)))
+        }
+    }
+
+    // Only rendered when iCite enrichment has produced APT scores.
+    private var topTranslational: [MetricsEngine.TranslationalEntry] {
+        MetricsEngine.topTranslational(
+            roster: store.filteredRoster, personData: store.personData, enrichment: store.enrichment)
+    }
+
+    private var translationalChart: some View {
+        let top = Array(topTranslational.prefix(10))
+        return chartCard("Most-Translational Faculty",
+                         subtitle: "Mean Approximate Potential to Translate (NIH iCite), top 10") {
+            Chart(top) { entry in
+                BarMark(
+                    x: .value("Mean APT", entry.meanAPT),
+                    y: .value("Name", entry.name),
+                    height: .ratio(0.7)
+                )
+                .foregroundStyle(ChartPalette.series2)
+                .cornerRadius(2)
+                .annotation(position: .trailing, spacing: 4) {
+                    Text(String(format: "%.2f", entry.meanAPT))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .chartXScale(domain: 0...1)
+            .chartXAxis(.hidden)
         }
     }
 

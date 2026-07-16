@@ -52,6 +52,7 @@ final class AppStore: ObservableObject {
         var effectivePersonData: [UUID: PersonData]?
         var metrics: [PersonMetrics]?
         var coauthorNetwork: CoauthorNetwork?
+        var mentorshipEdges: [MentorshipEdge]?
         var externalCollaborators: [ExternalCollaborator]?
     }
 
@@ -130,6 +131,16 @@ final class AppStore: ObservableObject {
         let result = MetricsEngine.coauthorNetwork(
             roster: filteredRoster, resolutions: resolutions, personData: effectivePersonData)
         derived.coauthorNetwork = result
+        return result
+    }
+
+    /// Directed mentor→mentee pairs (last author over a first author) within
+    /// the division in view.
+    var mentorshipEdges: [MentorshipEdge] {
+        if let cached = derived.mentorshipEdges { return cached }
+        let result = MetricsEngine.mentorshipEdges(
+            roster: filteredRoster, resolutions: resolutions, personData: effectivePersonData)
+        derived.mentorshipEdges = result
         return result
     }
 

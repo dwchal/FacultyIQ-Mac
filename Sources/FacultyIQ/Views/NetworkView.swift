@@ -6,6 +6,7 @@ struct NetworkView: View {
     @EnvironmentObject private var store: AppStore
     @State private var minWeight = 1
     @State private var showIsolated = false
+    @State private var showMentorship = false
     @State private var selectedID: UUID?
     @State private var hoveredID: UUID?
     @State private var positions: [UUID: NetworkLayout.Point] = [:]
@@ -99,6 +100,11 @@ struct NetworkView: View {
                 Toggle("Show \(isolatedCount) without coauthors", isOn: $showIsolated)
                     .toggleStyle(.checkbox)
             }
+            if !store.mentorshipEdges.isEmpty {
+                Toggle("Mentorship arrows (\(store.mentorshipEdges.count))", isOn: $showMentorship)
+                    .toggleStyle(.checkbox)
+                    .help("Arrows point from a senior (last) author to a roster member who first-authored their shared works — an approximate mentorship signal from byline order")
+            }
             Spacer()
             Text("\(network.nodes.count - isolatedCount) members · \(network.edges.count) collaborations")
                 .font(.caption)
@@ -114,6 +120,7 @@ struct NetworkView: View {
         NetworkGraphView(
             nodes: showIsolated ? network.nodes : network.nodes.filter { $0.degree > 0 },
             edges: network.edges.filter { $0.weight >= minWeight },
+            mentorship: showMentorship ? store.mentorshipEdges : [],
             positions: positions,
             maxWorks: network.nodes.map(\.worksCount).max() ?? 1,
             selectedID: $selectedID,
@@ -147,18 +154,32 @@ struct NetworkView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            let mentees = mentorshipPartners(of: node.memberID, asMentor: true, names: nameByID)
+            let mentors = mentorshipPartners(of: node.memberID, asMentor: false, names: nameByID)
             if coauthors.isEmpty {
                 Text("No coauthorships with other roster members.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
-                List(coauthors, id: \.name) { coauthor in
-                    HStack {
-                        Text(coauthor.name)
-                        Spacer()
-                        Text("\(coauthor.weight)")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
+                List {
+                    ForEach(coauthors, id: \.name) { coauthor in
+                        HStack {
+                            Text(coauthor.name)
+                            Spacer()
+                            Text("\(coauthor.weight)")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                    if !mentees.isEmpty {
+                        mentorshipSection(
+                            "Mentees — they first-author, \(node.name.components(separatedBy: " ").first ?? "member") is senior author",
+                            partners: mentees)
+                    }
+                    if !mentors.isEmpty {
+                        mentorshipSection(
+                            "Mentors — senior authors on their first-author works",
+                            partners: mentors)
                     }
                 }
                 .listStyle(.plain)
@@ -166,6 +187,32 @@ struct NetworkView: View {
             Spacer(minLength: 0)
         }
         .padding(12)
+    }
+
+    private func mentorshipPartners(of memberID: UUID, asMentor: Bool,
+                                    names: [UUID: String]) -> [(name: String, weight: Int)] {
+        store.mentorshipEdges
+            .filter { (asMentor ? $0.mentor : $0.mentee) == memberID }
+            .map { (name: names[asMentor ? $0.mentee : $0.mentor] ?? "—", weight: $0.weight) }
+            .sorted { ($0.weight, $1.name) > ($1.weight, $0.name) }
+    }
+
+    private func mentorshipSection(_ title: String,
+                                   partners: [(name: String, weight: Int)]) -> some View {
+        Section {
+            ForEach(partners, id: \.name) { partner in
+                HStack {
+                    Text(partner.name)
+                    Spacer()
+                    Text("\(partner.weight)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .help("\(partner.weight) shared \(partner.weight == 1 ? "work" : "works") in this first/last-author pairing (byline order — approximate)")
+            }
+        } header: {
+            Text(title).font(.caption)
+        }
     }
 
     private func topPairs(_ network: CoauthorNetwork) -> some View {
@@ -189,6 +236,25 @@ struct NetworkView: View {
                         Text("\(edge.weight)")
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
+                    }
+                }
+                let topMentorships = Array(store.mentorshipEdges.prefix(8))
+                if !topMentorships.isEmpty {
+                    Section {
+                        ForEach(topMentorships) { edge in
+                            HStack {
+                                Text("\(nameByID[edge.mentor] ?? "—") → \(nameByID[edge.mentee] ?? "—")")
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("\(edge.weight)")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            .help("\(nameByID[edge.mentor] ?? "—") is senior (last) author on \(edge.weight) \(edge.weight == 1 ? "work" : "works") first-authored by \(nameByID[edge.mentee] ?? "—") — byline order, so approximate")
+                        }
+                    } header: {
+                        Text("Mentorship — senior author → first author")
+                            .font(.caption)
                     }
                 }
                 if !suggestions.isEmpty {
@@ -222,6 +288,7 @@ struct NetworkView: View {
 struct NetworkGraphView: View {
     let nodes: [CoauthorNode]
     let edges: [CoauthorEdge]                     // pre-filtered for display
+    var mentorship: [MentorshipEdge] = []         // directed overlay; empty = off
     let positions: [UUID: NetworkLayout.Point]
     let maxWorks: Int
     @Binding var selectedID: UUID?
@@ -230,7 +297,9 @@ struct NetworkGraphView: View {
     var body: some View {
         let focusID = hoveredID ?? selectedID
         let neighbors = focusID.map { id in
-            Set(edges.compactMap { $0.other(than: id) }).union([id])
+            Set(edges.compactMap { $0.other(than: id) })
+                .union(mentorship.filter { $0.involves(id) }.flatMap { [$0.mentor, $0.mentee] })
+                .union([id])
         }
 
         GeometryReader { geo in
@@ -241,6 +310,9 @@ struct NetworkGraphView: View {
                     .onTapGesture { selectedID = nil }
 
                 edgeCanvas(focusID: focusID, size: geo.size)
+                if !mentorship.isEmpty {
+                    mentorshipCanvas(focusID: focusID, size: geo.size)
+                }
 
                 ForEach(nodes) { node in
                     let dimmed = neighbors.map { !$0.contains(node.memberID) } ?? false
@@ -332,8 +404,51 @@ struct NetworkGraphView: View {
         .allowsHitTesting(false)
     }
 
+    /// Directed mentor→mentee arrows over the coauthorship edges. The arrow
+    /// stops at the mentee node's rim so the head stays visible.
+    private func mentorshipCanvas(focusID: UUID?, size: CGSize) -> some View {
+        let visible = Set(nodes.map(\.memberID))
+        let radiusByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.memberID, radius(for: $0)) })
+        return Canvas { context, _ in
+            for edge in mentorship
+            where visible.contains(edge.mentor) && visible.contains(edge.mentee) {
+                let from = point(edge.mentor, in: size)
+                let to = point(edge.mentee, in: size)
+                let dx = to.x - from.x, dy = to.y - from.y
+                let length = (dx * dx + dy * dy).squareRoot()
+                guard length > 1 else { continue }
+                let (ux, uy) = (dx / length, dy / length)
+                let tip = CGPoint(x: to.x - ux * ((radiusByID[edge.mentee] ?? 8) + 3),
+                                  y: to.y - uy * ((radiusByID[edge.mentee] ?? 8) + 3))
+                let dimmed = focusID.map { !edge.involves($0) } ?? false
+                let color = ChartPalette.series3.opacity(dimmed ? 0.15 : 0.85)
+                let width = 1 + min(3, log2(1 + Double(edge.weight)))
+
+                var line = Path()
+                line.move(to: from)
+                line.addLine(to: tip)
+                context.stroke(line, with: .color(color), lineWidth: width)
+
+                let headLength = 7.0
+                var head = Path()
+                head.move(to: tip)
+                head.addLine(to: CGPoint(x: tip.x - ux * headLength - uy * headLength * 0.5,
+                                         y: tip.y - uy * headLength + ux * headLength * 0.5))
+                head.addLine(to: CGPoint(x: tip.x - ux * headLength + uy * headLength * 0.5,
+                                         y: tip.y - uy * headLength - ux * headLength * 0.5))
+                head.closeSubpath()
+                context.fill(head, with: .color(color))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func radius(for node: CoauthorNode) -> Double {
+        6 + 10 * (Double(node.worksCount) / Double(max(maxWorks, 1))).squareRoot()
+    }
+
     private func nodeView(_ node: CoauthorNode) -> some View {
-        let radius = 6 + 10 * (Double(node.worksCount) / Double(max(maxWorks, 1))).squareRoot()
+        let radius = radius(for: node)
         return VStack(spacing: 3) {
             Circle()
                 .fill(Self.color(for: node.rank))

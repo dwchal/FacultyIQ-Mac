@@ -7,14 +7,18 @@ extension MetricsEngine {
         var field: String?       // the OpenAlex field most of the topic's works fall under
         var works: Int           // distinct works across the cohort
         var people: Int          // members with at least one work on the topic
+        var led: Int = 0         // distinct works some member led (first/last/corresponding)
 
         var id: String { name }
     }
 
     /// Distinct works per primary topic across the cohort (a coauthored work
-    /// counts once), with how many members publish on each topic.
+    /// counts once), with how many members publish on each topic and how many
+    /// of the works a member in view led — the split between topics the
+    /// cohort drives and topics it contributes to.
     static func topicCounts(personData: [PersonData]) -> [TopicCount] {
         var worksByTopic: [String: Set<String>] = [:]
+        var ledByTopic: [String: Set<String>] = [:]
         var peopleByTopic: [String: Int] = [:]
         var fieldVotes: [String: [String: Int]] = [:]
         for data in personData {
@@ -23,6 +27,9 @@ extension MetricsEngine {
                 guard let topic = work.topicName else { continue }
                 worksByTopic[topic, default: []].insert(work.id)
                 personTopics.insert(topic)
+                if let own = ownAuthorship(work, authorID: data.profile.openalexID), isLead(own) {
+                    ledByTopic[topic, default: []].insert(work.id)
+                }
                 if let field = work.topicField {
                     fieldVotes[topic, default: [:]][field, default: 0] += 1
                 }
@@ -37,7 +44,8 @@ extension MetricsEngine {
                     name: topic,
                     field: fieldVotes[topic]?.max { $0.value < $1.value }?.key,
                     works: ids.count,
-                    people: peopleByTopic[topic] ?? 0)
+                    people: peopleByTopic[topic] ?? 0,
+                    led: ledByTopic[topic]?.count ?? 0)
             }
             .sorted { ($0.works, $1.name) > ($1.works, $0.name) }
     }
@@ -83,6 +91,26 @@ extension MetricsEngine {
             .sorted { ($0.value, $1.key) > ($1.value, $0.key) }
             .prefix(limit)
             .map { (name: $0.key, works: $0.value) }
+    }
+
+    /// A person's most frequent primary topics, split by role: `led` counts
+    /// works where they are first/last/corresponding author — their own
+    /// program on the topic, as opposed to riding along on collaborations.
+    static func personTopicRoles(data: PersonData,
+                                 limit: Int = 3) -> [(name: String, works: Int, led: Int)] {
+        var works: [String: Int] = [:]
+        var led: [String: Int] = [:]
+        for work in data.works {
+            guard let topic = work.topicName else { continue }
+            works[topic, default: 0] += 1
+            if let own = ownAuthorship(work, authorID: data.profile.openalexID), isLead(own) {
+                led[topic, default: 0] += 1
+            }
+        }
+        return works
+            .sorted { ($0.value, $1.key) > ($1.value, $0.key) }
+            .prefix(limit)
+            .map { (name: $0.key, works: $0.value, led: led[$0.key] ?? 0) }
     }
 
     /// True when some member's works all predate topic tracking, so the

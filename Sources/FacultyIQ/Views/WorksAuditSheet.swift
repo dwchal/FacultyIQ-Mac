@@ -16,7 +16,8 @@ struct WorksAuditSheet: View {
     }
 
     private var suspectIDs: Set<String> {
-        MetricsEngine.suspectWorkIDs(works: works)
+        MetricsEngine.suspectWorkIDs(
+            works: works, authorID: store.resolution(for: member)?.openalexID)
     }
 
     var body: some View {

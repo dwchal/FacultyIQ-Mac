@@ -155,7 +155,7 @@ private struct ProfileDetail: View {
     private var dataQualityCard: some View {
         let raw = store.personData[member.id]?.works ?? []
         let excluded = store.excludedWorks[member.id]?.count ?? 0
-        let suspects = MetricsEngine.suspectWorkIDs(works: raw)
+        let suspects = MetricsEngine.suspectWorkIDs(works: raw, authorID: resolution?.openalexID)
             .subtracting(store.excludedWorks[member.id] ?? [])
         let retracted = data.works.count { $0.isRetracted == true }
         if excluded > 0 || !suspects.isEmpty || retracted > 0 {
@@ -275,14 +275,60 @@ private struct ProfileDetail: View {
                         .yearXAxis(years: series.map(\.year))
                         .frame(height: 160)
                     }
+                    independenceSection(authorID: authorID)
                     if summary.tracked < data.works.count {
                         Text("\(data.works.count - summary.tracked) works predate position tracking — Refresh Data to include them.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    Text("Positions come from OpenAlex byline order, which can't see co-first or co-senior designations — treat as approximate.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
                 .padding(16)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    /// The first→senior transition: senior-author share per year plus the
+    /// crossover callout — the independence signal promotion committees
+    /// look for.
+    @ViewBuilder
+    private func independenceSection(authorID: String) -> some View {
+        let shares = MetricsEngine.seniorShareByYear(data: data, authorID: authorID)
+        let crossover = MetricsEngine.seniorTransitionYear(data: data, authorID: authorID)
+        if shares.count >= 3 {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("Senior-author share by year").font(.caption).foregroundStyle(.secondary)
+                    if let crossover {
+                        Label("senior-author-dominant since \(String(crossover))",
+                              systemImage: "flag.checkered")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(ChartPalette.positive)
+                            .help("First year whose trailing 3-year window has at least 2 last-author works and at least as many last-author as first-author works — and the current window still does")
+                    } else if let latest = metrics.seniorShare5y {
+                        Text(String(format: "· still first-author-leaning (%.0f%% senior over the last 5y)", latest))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Chart(shares, id: \.year) { point in
+                    LineMark(x: .value("Year", point.year), y: .value("Senior %", point.share))
+                        .foregroundStyle(ChartPalette.series3)
+                    PointMark(x: .value("Year", point.year), y: .value("Senior %", point.share))
+                        .foregroundStyle(ChartPalette.series3)
+                        .symbolSize(20)
+                    if let crossover {
+                        RuleMark(x: .value("Crossover", crossover))
+                            .foregroundStyle(ChartPalette.positive.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    }
+                }
+                .chartYScale(domain: 0...100)
+                .yearXAxis(years: shares.map(\.year))
+                .frame(height: 110)
             }
         }
     }
@@ -689,12 +735,24 @@ private struct ProfileDetail: View {
 
     @ViewBuilder
     private var topicsLine: some View {
-        let topics = MetricsEngine.personTopics(data: data)
-        if !topics.isEmpty {
-            Text("Topics: " + topics.map { "\($0.name) (\($0.works))" }.joined(separator: " · "))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding(.top, 2)
+        if metrics.positionTracked > 0 {
+            let topics = MetricsEngine.personTopicRoles(data: data)
+            if !topics.isEmpty {
+                Text("Topics: " + topics.map { "\($0.name) (\($0.led) led of \($0.works))" }
+                    .joined(separator: " · "))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+                    .help("Led = first, last, or corresponding author — this member's own program on the topic rather than a collaboration credit")
+            }
+        } else {
+            let topics = MetricsEngine.personTopics(data: data)
+            if !topics.isEmpty {
+                Text("Topics: " + topics.map { "\($0.name) (\($0.works))" }.joined(separator: " · "))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+            }
         }
         typesLine
     }
@@ -715,6 +773,10 @@ private struct ProfileDetail: View {
             tile("Citations", metrics.citations.formatted())
             tile("h-index", "\(metrics.hIndex)")
             tile("i10-index", "\(metrics.i10Index)")
+            if let independent = metrics.independentHIndex {
+                tile("Independent h-index", "\(independent)")
+                    .help("h-index over first/last/corresponding-author works only — the member's own program with middle authorships stripped out (approximate: OpenAlex can't see co-first or co-senior designations)")
+            }
             tile("Citations / Work", String(format: "%.1f", metrics.citationsPerWork))
             tile("Works / Year", String(format: "%.2f", metrics.worksPerYear))
             tile("Open Access", metrics.oaPercent.map { String(format: "%.0f%%", $0) } ?? "—")

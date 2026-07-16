@@ -11,12 +11,25 @@ extension MetricsEngine {
     /// papers follow. Candidates for the "not my paper" review, not verdicts:
     /// legitimately interdisciplinary one-offs land here too, which is why
     /// this only flags and never excludes.
-    static func suspectWorkIDs(works: [Work]) -> Set<String> {
-        let tagged = works.compactMap { work in work.topicField.map { (id: work.id, field: $0) } }
+    ///
+    /// When `authorID` is given, byline position tempers the flag: a work the
+    /// member led (first/last/corresponding) is much more likely a genuine
+    /// excursion than an incidental middle authorship, so led works are only
+    /// flagged when their field is a single-work excursion.
+    static func suspectWorkIDs(works: [Work], authorID: String? = nil) -> Set<String> {
+        let tagged = works.compactMap { work in work.topicField.map { (work: work, field: $0) } }
         guard tagged.count >= 10 else { return [] }
         let counts = Dictionary(grouping: tagged, by: \.field).mapValues(\.count)
         let threshold = max(1, Int((0.02 * Double(tagged.count)).rounded()))
-        return Set(tagged.filter { counts[$0.field]! <= threshold }.map(\.id))
+        return Set(tagged.filter { entry in
+            let fieldCount = counts[entry.field]!
+            guard fieldCount <= threshold else { return false }
+            if let authorID, let own = ownAuthorship(entry.work, authorID: authorID),
+               own.position != nil, isLead(own) {
+                return fieldCount == 1
+            }
+            return true
+        }.map(\.work.id))
     }
 
     /// The member's data with excluded works removed and headline counts

@@ -40,6 +40,14 @@ struct ExportView: View {
                     MetricsEngine.coauthorshipCSV(network: store.coauthorNetwork)
                 }
                 exportRow(
+                    "Mentorship Pairs",
+                    detail: "Directed senior-author → first-author pairs within the roster, from byline positions (approximate).",
+                    filename: "mentorship_pairs.csv",
+                    disabled: store.mentorshipEdges.isEmpty
+                ) {
+                    MetricsEngine.mentorshipCSV(edges: store.mentorshipEdges, roster: store.filteredRoster)
+                }
+                exportRow(
                     "External Collaborators",
                     detail: "One row per non-roster coauthor: shared works, roster partners, last shared year.",
                     filename: "external_collaborators.csv",

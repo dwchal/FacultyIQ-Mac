@@ -66,21 +66,50 @@ struct TopicsView: View {
 
     private func topTopicsCard(_ topics: [MetricsEngine.TopicCount]) -> some View {
         let top = Array(topics.prefix(12))
-        return card("Top Topics", subtitle: "Distinct works per primary topic (coauthored works count once)") {
+        let hasRoles = topics.contains { $0.led > 0 }
+        return card("Top Topics",
+                    subtitle: hasRoles
+                        ? "Distinct works per primary topic (coauthored works count once) — solid bars are works a member in view led (first, last, or corresponding author)"
+                        : "Distinct works per primary topic (coauthored works count once)") {
             Chart(top) { topic in
-                BarMark(
-                    x: .value("Works", topic.works),
-                    y: .value("Topic", shortLabel(topic.name)),
-                    height: .ratio(0.7)
-                )
-                .foregroundStyle(ChartPalette.series1)
-                .cornerRadius(2)
-                .annotation(position: .trailing, spacing: 4) {
-                    Text(topic.works.formatted())
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                if hasRoles {
+                    BarMark(
+                        x: .value("Works", topic.led),
+                        y: .value("Topic", shortLabel(topic.name)),
+                        height: .ratio(0.7)
+                    )
+                    .foregroundStyle(by: .value("Role", "Led"))
+                    .cornerRadius(2)
+                    BarMark(
+                        x: .value("Works", topic.works - topic.led),
+                        y: .value("Topic", shortLabel(topic.name)),
+                        height: .ratio(0.7)
+                    )
+                    .foregroundStyle(by: .value("Role", "Contributed"))
+                    .cornerRadius(2)
+                    .annotation(position: .trailing, spacing: 4) {
+                        Text(topic.works.formatted())
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    BarMark(
+                        x: .value("Works", topic.works),
+                        y: .value("Topic", shortLabel(topic.name)),
+                        height: .ratio(0.7)
+                    )
+                    .foregroundStyle(ChartPalette.series1)
+                    .cornerRadius(2)
+                    .annotation(position: .trailing, spacing: 4) {
+                        Text(topic.works.formatted())
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
+            .chartForegroundStyleScale(hasRoles
+                ? ["Led": ChartPalette.series1, "Contributed": ChartPalette.series1Light]
+                : [:])
             .chartXAxis(.hidden)
             .chartYAxis {
                 AxisMarks { _ in
@@ -122,6 +151,11 @@ struct TopicsView: View {
                     .width(min: 100, ideal: 160)
                 TableColumn("Works", value: \.works) { Text("\($0.works)") }
                     .width(60)
+                TableColumn("Led", value: \.led) { topic in
+                    Text("\(topic.led)")
+                        .help("Works on this topic where a member in view is first, last, or corresponding author")
+                }
+                .width(50)
                 TableColumn("Faculty", value: \.people) { Text("\($0.people)") }
                     .width(60)
             }

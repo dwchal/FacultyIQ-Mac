@@ -71,6 +71,22 @@ enum MetricsEngine {
         let recentCutoff = currentYear - 4
         let recentWorks = works.count { ($0.year ?? 0) >= recentCutoff }
 
+        // Authorship-position metrics, from the member's own entry in each
+        // work's byline (the profile ID is the resolved OpenAlex author).
+        let authorID = data.profile.openalexID
+        var firstAuthor = 0, seniorAuthor = 0, positioned = 0
+        var recentPositioned = 0, recentSenior = 0
+        for work in works {
+            guard let position = ownAuthorship(work, authorID: authorID)?.position else { continue }
+            positioned += 1
+            if position == .first { firstAuthor += 1 }
+            if position == .last { seniorAuthor += 1 }
+            if (work.year ?? 0) >= recentCutoff {
+                recentPositioned += 1
+                if position == .last { recentSenior += 1 }
+            }
+        }
+
         return PersonMetrics(
             memberID: member.id,
             name: member.name,
@@ -85,7 +101,13 @@ enum MetricsEngine {
             oaPercent: oaPercent,
             recentWorks5y: recentWorks,
             firstPubYear: firstPubYear,
-            careerYears: careerYears
+            careerYears: careerYears,
+            firstAuthorWorks: firstAuthor,
+            seniorAuthorWorks: seniorAuthor,
+            positionTracked: positioned,
+            independentHIndex: independentHIndex(data: data, authorID: authorID),
+            seniorShare5y: recentPositioned > 0
+                ? 100 * Double(recentSenior) / Double(recentPositioned) : nil
         )
     }
 
@@ -373,7 +395,7 @@ enum MetricsEngine {
                            personData: [UUID: PersonData] = [:],
                            enrichment: [UUID: Enrichment] = [:]) -> String {
         let byID = Dictionary(uniqueKeysWithValues: roster.map { ($0.id, $0) })
-        var lines = ["Name,Rank,Division,Status,Works,Citations,h-index,i10-index,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,ORCID,Scopus ID"]
+        var lines = ["Name,Rank,Division,Status,Works,Citations,h-index,i10-index,Independent h-index,First Author Works,Senior Author Works,Senior Share 5y %,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,ORCID,Scopus ID"]
         for m in metrics.sorted(by: { $0.name < $1.name }) {
             let member = byID[m.memberID]
             let rcr: Double? = personData[m.memberID].flatMap {
@@ -390,6 +412,10 @@ enum MetricsEngine {
                 String(m.citations),
                 String(m.hIndex),
                 String(m.i10Index),
+                m.independentHIndex.map(String.init) ?? "",
+                m.positionTracked > 0 ? String(m.firstAuthorWorks) : "",
+                m.positionTracked > 0 ? String(m.seniorAuthorWorks) : "",
+                m.seniorShare5y.map { String(format: "%.0f", $0) } ?? "",
                 String(format: "%.1f", m.citationsPerWork),
                 String(format: "%.2f", m.worksPerYear),
             ]

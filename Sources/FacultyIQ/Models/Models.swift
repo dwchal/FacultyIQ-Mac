@@ -226,6 +226,13 @@ struct PersonMetrics: Identifiable, Hashable {
     var recentWorks5y: Int
     var firstPubYear: Int?
     var careerYears: Int
+    // Authorship-position metrics; zeros/nil when no work carries position
+    // data for this author (pre-position fetches).
+    var firstAuthorWorks: Int = 0
+    var seniorAuthorWorks: Int = 0
+    var positionTracked: Int = 0
+    var independentHIndex: Int? = nil    // h-index over first/last/corresponding works
+    var seniorShare5y: Double? = nil     // % of positioned works in the last 5y as last author
 
     var id: UUID { memberID }
 }
@@ -273,6 +280,19 @@ struct CoauthorEdge: Identifiable, Hashable {
         if memberB == member { return memberA }
         return nil
     }
+}
+
+/// A directed mentor→mentee signal within the roster: `mentor` is last
+/// author on `weight` distinct works where `mentee` is first author.
+/// Approximate — OpenAlex only knows byline order, not actual supervision.
+struct MentorshipEdge: Identifiable, Hashable {
+    var mentor: UUID
+    var mentee: UUID
+    var weight: Int
+
+    var id: String { "\(mentor.uuidString)>\(mentee.uuidString)" }
+
+    func involves(_ member: UUID) -> Bool { mentor == member || mentee == member }
 }
 
 struct CoauthorNode: Identifiable, Hashable {

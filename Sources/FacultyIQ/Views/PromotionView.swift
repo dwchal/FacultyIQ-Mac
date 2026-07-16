@@ -214,6 +214,14 @@ struct PromotionView: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text("\(candidate.metrics.worksCount) works · \(candidate.metrics.citations.formatted()) citations")
                 Text("h-index \(candidate.metrics.hIndex)")
+                if let independent = candidate.metrics.independentHIndex {
+                    Text("independent h-index \(independent)")
+                        .help("h-index over first/last/corresponding-author works only")
+                }
+                if let senior = candidate.metrics.seniorShare5y {
+                    Text(String(format: "senior author %.0f%% (5y)", senior))
+                        .help("Share of the last five years' position-tracked works with this member as last author — the independence signal committees look for")
+                }
                 if let rcr = meanRCR(for: candidate.metrics.memberID) {
                     Text(String(format: "mean RCR %.2f", rcr))
                         .help("Mean Relative Citation Ratio (NIH iCite): 1.0 is the field-normalized average")

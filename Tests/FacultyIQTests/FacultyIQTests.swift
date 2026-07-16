@@ -52,6 +52,19 @@ final class RosterImporterTests: XCTestCase {
         XCTAssertNil(RosterImporter.mapColumns(["Name", "Email"])[.division])
     }
 
+    func testStatusColumnAndParsing() throws {
+        let csv = """
+        Name,Rank,Status
+        Alice,Full Professor,Emeritus Professor
+        Bob,Assistant Professor,active
+        Cara,Full Professor,Retired 2024
+        Dan,Instructor,
+        """
+        let members = try RosterImporter.importRoster(fromText: csv)
+        XCTAssertEqual(members.map(\.status), [.emeritus, .active, .retired, nil])
+        XCTAssertEqual(members.map(\.isActive), [false, true, false, true])
+    }
+
     func testCleanORCIDStripsURL() {
         XCTAssertEqual(RosterImporter.cleanORCID("https://orcid.org/0000-0001-2345-6789"),
                        "0000-0001-2345-6789")

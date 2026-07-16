@@ -373,7 +373,7 @@ enum MetricsEngine {
                            personData: [UUID: PersonData] = [:],
                            enrichment: [UUID: Enrichment] = [:]) -> String {
         let byID = Dictionary(uniqueKeysWithValues: roster.map { ($0.id, $0) })
-        var lines = ["Name,Rank,Division,Works,Citations,h-index,i10-index,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,ORCID,Scopus ID"]
+        var lines = ["Name,Rank,Division,Status,Works,Citations,h-index,i10-index,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,ORCID,Scopus ID"]
         for m in metrics.sorted(by: { $0.name < $1.name }) {
             let member = byID[m.memberID]
             let rcr: Double? = personData[m.memberID].flatMap {
@@ -385,6 +385,7 @@ enum MetricsEngine {
                 m.name,
                 m.rawRank ?? "",
                 member?.division ?? "",
+                (member?.status ?? .active).label,
                 String(m.worksCount),
                 String(m.citations),
                 String(m.hIndex),

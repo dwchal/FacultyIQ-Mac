@@ -2,12 +2,37 @@ import Foundation
 
 // MARK: - Roster
 
+/// Roster standing. Emeritus/retired members stay on the roster (and out of
+/// the external-collaborators list) but are excluded from promotion
+/// benchmarks and candidacy — they're not on the promotion track.
+enum MemberStatus: String, Codable, CaseIterable {
+    case active, emeritus, retired
+
+    var label: String {
+        switch self {
+        case .active: "Active"
+        case .emeritus: "Emeritus"
+        case .retired: "Retired"
+        }
+    }
+
+    /// Standardize free-text status strings from roster CSVs.
+    static func parse(_ raw: String?) -> MemberStatus? {
+        guard let s = raw?.lowercased(), !s.isEmpty else { return nil }
+        if s.contains("emerit") { return .emeritus }
+        if s.contains("retir") { return .retired }
+        if s.contains("active") || s.contains("current") { return .active }
+        return nil
+    }
+}
+
 struct FacultyMember: Identifiable, Codable, Hashable {
     var id = UUID()
     var name: String
     var email: String?
     var rank: String?
     var division: String?
+    var status: MemberStatus? = nil   // nil = active (pre-status rosters)
     var lastPromotionYear: Int?
     var hireYear: Int?
     var assistantStartYear: Int?
@@ -22,6 +47,9 @@ struct FacultyMember: Identifiable, Codable, Hashable {
 }
 
 extension FacultyMember {
+    /// On the promotion track and counted in benchmarks.
+    var isActive: Bool { (status ?? .active) == .active }
+
     /// Case-insensitive match against name, rank, and division — the filter
     /// behind the search fields on the people lists.
     func matches(search: String) -> Bool {

@@ -202,6 +202,23 @@ struct ExternalCollaboratorsView: View {
     // MARK: Table
 
     private func table(_ rows: [Row]) -> some View {
+        tableContent(rows)
+            .contextMenu(forSelectionType: Row.ID.self) { ids in
+                if let id = ids.first,
+                   let collaborator = rows.first(where: { $0.id == id })?.collaborator {
+                    Button("Add \(collaborator.displayName) to Roster") {
+                        Task { await store.addToRoster(external: collaborator) }
+                    }
+                    .disabled(store.isBusy)
+                    Button("Add as Emeritus") {
+                        Task { await store.addToRoster(external: collaborator, status: .emeritus) }
+                    }
+                    .disabled(store.isBusy)
+                }
+            }
+    }
+
+    private func tableContent(_ rows: [Row]) -> some View {
         Table(rows, selection: $selectedID, sortOrder: $sortOrder) {
             TableColumn("Name", value: \.name)
                 .width(min: 140)
@@ -271,6 +288,17 @@ struct ExternalCollaboratorsView: View {
                 Link("View on OpenAlex", destination: url)
                     .font(.caption)
             }
+            HStack(spacing: 8) {
+                Button("Add to Roster") {
+                    Task { await store.addToRoster(external: collaborator) }
+                }
+                .help("Add \(collaborator.displayName) as a roster member, resolved to this OpenAlex author, and fetch their data. Set rank and division afterward on the Roster tab.")
+                Button("Add as Emeritus") {
+                    Task { await store.addToRoster(external: collaborator, status: .emeritus) }
+                }
+                .help("Same, marked Emeritus: in the division views but out of promotion benchmarks")
+            }
+            .disabled(store.isBusy)
             Text("Publishes with")
                 .font(.subheadline.weight(.semibold))
             List(collaborator.partners) { partner in

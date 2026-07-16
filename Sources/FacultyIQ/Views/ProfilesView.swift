@@ -652,7 +652,18 @@ private struct ProfileDetail: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(member.name).font(.title.weight(.semibold))
+            HStack(spacing: 10) {
+                Text(member.name).font(.title.weight(.semibold))
+                if !member.isActive {
+                    Text((member.status ?? .active).label.uppercased())
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.quaternary, in: Capsule())
+                        .foregroundStyle(.secondary)
+                        .help("Excluded from promotion benchmarks and candidacy")
+                }
+            }
             HStack(spacing: 8) {
                 if let rank = member.rank { Text(rank) }
                 if let aff = resolution?.affiliation {

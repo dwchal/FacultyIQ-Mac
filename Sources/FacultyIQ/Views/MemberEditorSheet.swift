@@ -20,6 +20,7 @@ struct MemberEditorSheet: View {
     @State private var rankChoice = ""
     @State private var customRank = ""
     @State private var division = ""
+    @State private var status: MemberStatus = .active
     @State private var hireYear = ""
     @State private var lastPromotionYear = ""
     @State private var assistantStartYear = ""
@@ -54,6 +55,14 @@ struct MemberEditorSheet: View {
                     }
                     TextField("Division / department", text: $division,
                               prompt: Text("e.g. Infectious Diseases"))
+                    Picker("Status", selection: $status) {
+                        ForEach(MemberStatus.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    if status != .active {
+                        Text("\(status.label) members stay in the division views and off the external-collaborators list, but are excluded from promotion benchmarks and candidacy.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Section("Career") {
                     yearField("Initial hire year", $hireYear)
@@ -110,6 +119,7 @@ struct MemberEditorSheet: View {
             customRank = Self.standardRanks.contains(r) ? "" : r
         }
         division = member.division ?? ""
+        status = member.status ?? .active
         hireYear = member.hireYear.map(String.init) ?? ""
         lastPromotionYear = member.lastPromotionYear.map(String.init) ?? ""
         assistantStartYear = member.assistantStartYear.map(String.init) ?? ""
@@ -128,6 +138,7 @@ struct MemberEditorSheet: View {
         result.email = email.trimmingCharacters(in: .whitespaces).nilIfEmpty
         result.rank = rank
         result.division = division.trimmingCharacters(in: .whitespaces).nilIfEmpty
+        result.status = status == .active ? nil : status
         result.hireYear = hireYear.extractedYear
         result.lastPromotionYear = lastPromotionYear.extractedYear
         result.assistantStartYear = assistantStartYear.extractedYear

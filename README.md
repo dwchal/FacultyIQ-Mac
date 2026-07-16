@@ -73,6 +73,14 @@ individual profiles, coauthorship networks, and promotion insights.
   plus a CSV export. Unresolved roster members are kept out of the list by
   ID and by a normalized name match. An Institutions view groups externals
   by affiliation — the strategic-partnership picture — with its own export.
+  Any external can be added to the roster in one click (sidebar button or
+  right-click), optionally straight to Emeritus: they're resolved to their
+  known OpenAlex author and fetched immediately, then drop out of the
+  externals list.
+- **Member status** — mark people Active/Emeritus/Retired (member editor, or
+  a "status" CSV column). Emeritus/retired members stay in the division views
+  and off the externals list, but are excluded from promotion benchmarks and
+  candidacy so they don't skew the bar for active faculty.
 - **Work audit & exclusions** — OpenAlex author disambiguation isn't perfect;
   every profile has an Audit Works sheet where misattributed papers can be
   marked "not theirs" (persisted, survives refreshes) and drop out of every

@@ -103,6 +103,11 @@ struct RosterView: View {
                 TableColumn("Name", value: \.name)
                 TableColumn("Rank", value: \.rankSort) { Text($0.rank ?? "—") }
                 TableColumn("Division", value: \.divisionSort) { Text($0.division ?? "—") }
+                TableColumn("Status", value: \.statusSort) { member in
+                    Text((member.status ?? .active).label)
+                        .foregroundStyle(member.isActive ? .primary : .secondary)
+                }
+                .width(70)
                 TableColumn("Hired", value: \.hireYearSort) { Text($0.hireYear.map(String.init) ?? "—") }
                     .width(60)
                 TableColumn("Last Promotion", value: \.promotionYearSort) { Text($0.lastPromotionYear.map(String.init) ?? "—") }
@@ -166,6 +171,7 @@ struct RosterView: View {
 // Sort keys for optional columns; missing values sort first ascending.
 private extension FacultyMember {
     var rankSort: String { rank ?? "" }
+    var statusSort: String { (status ?? .active).label }
     var divisionSort: String { division ?? "" }
     var hireYearSort: Int { hireYear ?? 0 }
     var promotionYearSort: Int { lastPromotionYear ?? 0 }

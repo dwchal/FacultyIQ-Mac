@@ -106,16 +106,23 @@ final class AppStore: ObservableObject {
             metrics: metrics)
     }
 
+    /// Metrics for members on the promotion track — emeritus/retired members
+    /// stay in the division views but out of benchmarks and candidacy.
+    var activeMetrics: [PersonMetrics] {
+        let active = Set(filteredRoster.filter(\.isActive).map(\.id))
+        return metrics.filter { active.contains($0.memberID) }
+    }
+
     var benchmarks: [RankBenchmark] {
-        MetricsEngine.rankBenchmarks(metrics: metrics)
+        MetricsEngine.rankBenchmarks(metrics: activeMetrics)
     }
 
     var promotionCandidates: [PromotionCandidate] {
-        MetricsEngine.promotionCandidates(metrics: metrics, benchmarks: benchmarks)
+        MetricsEngine.promotionCandidates(metrics: activeMetrics, benchmarks: benchmarks)
     }
 
     var promotionProgress: [PromotionProgress] {
-        MetricsEngine.promotionProgress(metrics: metrics, benchmarks: benchmarks)
+        MetricsEngine.promotionProgress(metrics: activeMetrics, benchmarks: benchmarks)
     }
 
     var coauthorNetwork: CoauthorNetwork {
@@ -135,6 +142,30 @@ final class AppStore: ObservableObject {
             resolutions: resolutions, personData: effectivePersonData)
         derived.externalCollaborators = result
         return result
+    }
+
+    /// Promote an external collaborator to a roster member: add them,
+    /// resolve them to their already-known OpenAlex ID, and fetch their
+    /// data. Once resolved they drop out of the externals list on their own.
+    /// Rank/division start empty — edit them on the Roster tab.
+    func addToRoster(external: ExternalCollaborator, status: MemberStatus? = nil) async {
+        guard !roster.contains(where: { resolutions[$0.id]?.openalexID == external.openalexID })
+        else { return }
+        let details = externalAuthorDetails[external.openalexID]
+        var member = FacultyMember(name: details?.displayName ?? external.displayName)
+        member.status = status
+        member.orcid = details?.orcid.map(RosterImporter.cleanORCID)
+        roster.append(member)
+        resolutions[member.id] = Resolution(
+            openalexID: external.openalexID,
+            displayName: details?.displayName ?? external.displayName,
+            method: .manual,
+            affiliation: details?.affiliation,
+            orcid: details?.orcid)
+        save()
+        await runBatch(label: "Fetching", items: [member]) { member in
+            try await self.fetchOne(member)
+        }
     }
 
     // MARK: Work exclusion

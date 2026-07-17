@@ -130,6 +130,25 @@ final class PositionTests: XCTestCase {
         XCTAssertNil(MetricsEngine.seniorTransitionYear(data: slipped, authorID: "A1"))
     }
 
+    func testSeniorTransitionYearAnchorsAtLastActiveYear() {
+        // An emeritus member who crossed decades ago and then stopped
+        // publishing: the crossover must not be hidden just because the
+        // current calendar window is empty.
+        let y = MetricsEngine.currentYear
+        let data = personData([
+            work("F1", year: y - 30, authors: [author("A1", position: .first)]),
+            work("F2", year: y - 29, authors: [author("A1", position: .first)]),
+            work("L1", year: y - 25, authors: [author("A1", position: .last)]),
+            work("L2", year: y - 24, authors: [author("A1", position: .last)]),
+            work("L3", year: y - 20, authors: [author("A1", position: .last)]),
+            work("L4", year: y - 19, authors: [author("A1", position: .last)]),
+            // A sparse tail (one late senior work, below the 2-work window
+            // threshold) must not hide the crossover either.
+            work("L5", year: y - 10, authors: [author("A1", position: .last)]),
+        ])
+        XCTAssertEqual(MetricsEngine.seniorTransitionYear(data: data, authorID: "A1"), y - 24)
+    }
+
     func testPersonMetricsCarriesPositionFields() {
         let y = MetricsEngine.currentYear
         let member = FacultyMember(name: "Alice")

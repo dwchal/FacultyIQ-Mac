@@ -65,8 +65,11 @@ extension MetricsEngine {
     /// The first→senior crossover: the first year whose trailing 3-year
     /// window has at least two last-author works and at least as many
     /// last-author as first-author works. Nil when the member has never
-    /// crossed — or has slipped back, i.e. the current window no longer
-    /// satisfies the condition.
+    /// crossed — or has slipped back, i.e. the window at their most recent
+    /// positioned year is first-author-dominant again. A merely quiet final
+    /// window (career tapering off) doesn't invalidate the crossover, and
+    /// anchoring at the last active year (not the calendar year) keeps it
+    /// visible for emeritus members who stopped publishing.
     static func seniorTransitionYear(data: PersonData, authorID: String) -> Int? {
         var first: [Int: Int] = [:]
         var last: [Int: Int] = [:]
@@ -77,7 +80,8 @@ extension MetricsEngine {
             if position == .first { first[year, default: 0] += 1 }
             if position == .last { last[year, default: 0] += 1 }
         }
-        guard let earliest = Set(first.keys).union(last.keys).min() else { return nil }
+        let years = Set(first.keys).union(last.keys)
+        guard let earliest = years.min(), let anchor = years.max() else { return nil }
         func window(_ map: [Int: Int], _ year: Int) -> Int {
             ((year - 2)...year).reduce(0) { $0 + (map[$1] ?? 0) }
         }
@@ -85,8 +89,8 @@ extension MetricsEngine {
             let seniors = window(last, year)
             return seniors >= 2 && seniors >= window(first, year)
         }
-        guard crossed(currentYear) else { return nil }
-        return (earliest...currentYear).first(where: crossed)
+        guard window(first, anchor) <= window(last, anchor) else { return nil }
+        return (earliest...anchor).first(where: crossed)
     }
 
     // MARK: Mentorship pairs

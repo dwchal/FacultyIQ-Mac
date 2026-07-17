@@ -338,6 +338,9 @@ final class AppStore: ObservableObject {
     }
 
     func resolve(_ member: FacultyMember, with candidate: AuthorCandidate, method: ResolutionMethod) {
+        // The member may have been deleted while a search sheet was open;
+        // resolving them anyway would orphan a resolutions entry.
+        guard roster.contains(where: { $0.id == member.id }) else { return }
         // Data fetched for a previously resolved author doesn't carry over.
         if resolutions[member.id]?.openalexID != candidate.openalexID {
             personData[member.id] = nil
@@ -414,8 +417,8 @@ final class AppStore: ObservableObject {
             date: data.fetchedAt,
             openalexID: data.profile.openalexID,
             name: data.profile.displayName,
-            works: max(data.profile.worksCount, data.works.count),
-            citations: data.profile.citedByCount,
+            works: MetricsEngine.effectiveWorksCount(data),
+            citations: MetricsEngine.effectiveCitations(data),
             hIndex: MetricsEngine.effectiveHIndex(data))
         if let last = snapshots.last(where: { $0.openalexID == snapshot.openalexID }),
            (last.works, last.citations, last.hIndex)

@@ -21,9 +21,31 @@ enum MetricsEngine {
         citations.count { $0 >= 10 }
     }
 
-    /// The profile's h-index, or the local computation when OpenAlex omits it.
+    // The effective* helpers take the larger of the profile figure and the
+    // one computed from the fetched works. The works list holds the top-cited
+    // works, so the local computation is a hard lower bound on the truth —
+    // if the profile reports less, OpenAlex handed back a degraded record
+    // (observed 2026-07-16: zeroed summary_stats during a backend migration),
+    // and trusting it would zero the dashboards, snapshots, and deltas.
+
+    /// The larger of the profile's h-index and the locally computed one.
     static func effectiveHIndex(_ data: PersonData) -> Int {
-        data.profile.hIndex ?? hIndex(citations: data.works.map(\.citedByCount))
+        max(data.profile.hIndex ?? 0, hIndex(citations: data.works.map(\.citedByCount)))
+    }
+
+    /// The larger of the profile's citation total and the works-list sum.
+    static func effectiveCitations(_ data: PersonData) -> Int {
+        max(data.profile.citedByCount, data.works.map(\.citedByCount).reduce(0, +))
+    }
+
+    /// The larger of the profile's works count and the works-list length.
+    static func effectiveWorksCount(_ data: PersonData) -> Int {
+        max(data.profile.worksCount, data.works.count)
+    }
+
+    /// The larger of the profile's i10 and the locally computed one.
+    static func effectiveI10(_ data: PersonData) -> Int {
+        max(data.profile.i10Index ?? 0, i10Index(citations: data.works.map(\.citedByCount)))
     }
 
     // MARK: Refresh deltas
@@ -44,8 +66,8 @@ enum MetricsEngine {
             since: existing?.since ?? old.fetchedAt,
             checkedAt: new.fetchedAt,
             newWorkIDs: carried + addedIDs,
-            worksDelta: (existing?.worksDelta ?? 0) + (new.profile.worksCount - old.profile.worksCount),
-            citationsDelta: (existing?.citationsDelta ?? 0) + (new.profile.citedByCount - old.profile.citedByCount),
+            worksDelta: (existing?.worksDelta ?? 0) + (effectiveWorksCount(new) - effectiveWorksCount(old)),
+            citationsDelta: (existing?.citationsDelta ?? 0) + (effectiveCitations(new) - effectiveCitations(old)),
             hIndexDelta: (existing?.hIndexDelta ?? 0) + (effectiveHIndex(new) - effectiveHIndex(old))
         )
     }
@@ -54,9 +76,8 @@ enum MetricsEngine {
 
     static func personMetrics(member: FacultyMember, data: PersonData) -> PersonMetrics {
         let works = data.works
-        let citations = works.map(\.citedByCount)
-        let totalCitations = data.profile.citedByCount
-        let worksCount = max(data.profile.worksCount, works.count)
+        let totalCitations = effectiveCitations(data)
+        let worksCount = effectiveWorksCount(data)
 
         let firstPubYear = works.compactMap(\.year).min()
         // Career span from hire year when known, else first publication.
@@ -95,7 +116,7 @@ enum MetricsEngine {
             worksCount: worksCount,
             citations: totalCitations,
             hIndex: effectiveHIndex(data),
-            i10Index: data.profile.i10Index ?? i10Index(citations: citations),
+            i10Index: effectiveI10(data),
             citationsPerWork: worksCount > 0 ? Double(totalCitations) / Double(worksCount) : 0,
             worksPerYear: Double(worksCount) / Double(careerYears),
             oaPercent: oaPercent,

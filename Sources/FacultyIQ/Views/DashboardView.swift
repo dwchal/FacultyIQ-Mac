@@ -82,6 +82,7 @@ struct DashboardView: View {
             .symbolSize(36)
         }
         .chartYScale(domain: .automatic(includesZero: false))
+        .dayXAxis(dates: points.map(\.date))
     }
 
     // MARK: KPI tiles

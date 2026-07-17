@@ -630,6 +630,7 @@ private struct ProfileDetail: View {
                 .symbolSize(30)
             }
             .chartYScale(domain: .automatic(includesZero: false))
+            .dayXAxis(dates: history.map(\.date))
             .frame(height: 120)
         }
         .frame(maxWidth: .infinity)

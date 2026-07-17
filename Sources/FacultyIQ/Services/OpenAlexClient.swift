@@ -119,7 +119,7 @@ actor OpenAlexClient {
     func works(authorID: String, limit: Int = 2000, bypassCache: Bool = false) async throws -> [Work] {
         var works: [Work] = []
         var cursor: String? = "*"
-        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships,primary_topic,is_retracted"
+        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships,primary_topic,is_retracted,counts_by_year"
 
         while let c = cursor, works.count < limit {
             let url = endpoint("works", query: [
@@ -286,6 +286,10 @@ private struct OAWork: Decodable {
         var displayName: String?
         var field: Field?
     }
+    struct CountsByYear: Decodable {
+        var year: Int
+        var citedByCount: Int?
+    }
 
     var id: String
     var displayName: String?
@@ -300,6 +304,7 @@ private struct OAWork: Decodable {
     var authorships: [Authorship]?
     var primaryTopic: PrimaryTopic?
     var isRetracted: Bool?
+    var countsByYear: [CountsByYear]?
 
     var work: Work {
         Work(
@@ -326,7 +331,10 @@ private struct OAWork: Decodable {
             },
             topicName: primaryTopic?.displayName,
             topicField: primaryTopic?.field?.displayName,
-            isRetracted: isRetracted
+            isRetracted: isRetracted,
+            citationsByYear: countsByYear.map { list in
+                list.map { WorkYearCites(year: $0.year, citedByCount: $0.citedByCount ?? 0) }
+            }
         )
     }
 }

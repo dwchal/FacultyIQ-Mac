@@ -168,16 +168,35 @@ enum MetricsEngine {
         return counts.sorted { $0.key < $1.key }.map { (year: $0.key, count: $0.value) }
     }
 
-    /// Citations received per year across the division (OpenAlex counts_by_year,
-    /// which covers roughly the last decade).
+    /// Citations received per year across the division — new citations dated
+    /// by the citing paper's year, from per-work counts (roughly the last
+    /// decade). Like the works chart, a coauthored work counts once per member.
     static func citationsPerYear(personData: [PersonData]) -> [(year: Int, count: Int)] {
         var counts: [Int: Int] = [:]
         for data in personData {
-            for yc in data.profile.countsByYear where yc.year <= currentYear {
-                counts[yc.year, default: 0] += yc.citedByCount
+            for (year, count) in citationsByYear(data) where year <= currentYear {
+                counts[year, default: 0] += count
             }
         }
         return counts.sorted { $0.key < $1.key }.map { (year: $0.key, count: $0.value) }
+    }
+
+    /// Total citations accrued to date by works published each year, distinct
+    /// across the cohort (a coauthored work counts once) — the "vintage
+    /// impact" companion to citationsPerYear. Recent years are always low:
+    /// their papers are still accruing citations.
+    static func citationsByPublicationYear(personData: [PersonData],
+                                           fromYear: Int = 1990) -> [(year: Int, citations: Int)] {
+        var seen = Set<String>()
+        var totals: [Int: Int] = [:]
+        for data in personData {
+            for work in data.works {
+                guard let year = work.year, year >= fromYear, year <= currentYear,
+                      seen.insert(work.id).inserted else { continue }
+                totals[year, default: 0] += work.citedByCount
+            }
+        }
+        return totals.sorted { $0.key < $1.key }.map { (year: $0.key, citations: $0.value) }
     }
 
     /// OA share of division publications per year.
@@ -464,7 +483,7 @@ enum MetricsEngine {
             for work in data.works {
                 if let y = work.year { worksByYear[y, default: 0] += 1 }
             }
-            let citesByYear = Dictionary(uniqueKeysWithValues: data.profile.countsByYear.map { ($0.year, $0.citedByCount) })
+            let citesByYear = citationsByYear(data)
             for year in Set(worksByYear.keys).union(citesByYear.keys).sorted() {
                 lines.append([
                     csvEscape(member.name),

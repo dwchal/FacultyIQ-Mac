@@ -27,8 +27,9 @@ struct DashboardView: View {
                         oaChart
                         topFacultyChart
                     }
-                    if !topTranslational.isEmpty {
-                        HStack(alignment: .top, spacing: 20) {
+                    HStack(alignment: .top, spacing: 20) {
+                        vintageChart
+                        if !topTranslational.isEmpty {
                             translationalChart
                         }
                     }
@@ -137,9 +138,31 @@ struct DashboardView: View {
 
     private var citationsChart: some View {
         let trend = MetricsEngine.divisionTrend(personData: fetched)
-        return chartCard("Citations Received per Year", subtitle: "Last decade (OpenAlex counts)",
+        return chartCard("Citations Received per Year",
+                         subtitle: "New citations to the cohort's works, dated by the citing paper's year (last decade)",
                          trend: trend, growth: trend.citationsGrowth) {
-            CitationsPerYearChart(data: MetricsEngine.citationsPerYear(personData: fetched))
+            VStack(alignment: .leading, spacing: 4) {
+                CitationsPerYearChart(data: MetricsEngine.citationsPerYear(personData: fetched))
+                if MetricsEngine.staleCitationData(personData: fetched) {
+                    Label("Some members' data predates per-work citation tracking — Refresh Data for accurate citation timing.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var vintageChart: some View {
+        let series = MetricsEngine.citationsByPublicationYear(personData: fetched)
+        return chartCard("Citations by Publication Year",
+                         subtitle: "Citations accrued to date by each year's papers (coauthored works count once) — recent years are still accruing") {
+            Chart(series, id: \.year) { item in
+                yearColumn(year: item.year, label: "Citations", value: Double(item.citations))
+                    .foregroundStyle(ChartPalette.series1Light)
+                    .cornerRadius(2)
+            }
+            .yearXAxis(years: series.map(\.year))
         }
     }
 

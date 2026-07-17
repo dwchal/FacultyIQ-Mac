@@ -160,6 +160,15 @@ struct Work: Identifiable, Codable, Hashable {
     var topicName: String? = nil  // OpenAlex primary topic; nil = untagged or pre-topic fetch
     var topicField: String? = nil // the field that topic belongs to (e.g. "Medicine")
     var isRetracted: Bool? = nil  // nil = fetched before retraction was tracked
+    // Citations this work received per year (work-level counts_by_year,
+    // last decade or so); nil = fetched before per-work counts were tracked.
+    var citationsByYear: [WorkYearCites]? = nil
+}
+
+/// Citations one work received during one year.
+struct WorkYearCites: Codable, Hashable {
+    var year: Int
+    var citedByCount: Int
 }
 
 enum AuthorPosition: String, Codable, Hashable {

@@ -14,10 +14,31 @@ extension MetricsEngine {
         return counts
     }
 
-    /// Citations received per year, from the profile's counts_by_year
-    /// (OpenAlex covers roughly the last decade).
+    /// Citations received per year, summed from each work's own
+    /// counts_by_year (OpenAlex covers roughly the last decade per work).
+    /// The author-level counts_by_year is only a fallback for data fetched
+    /// before per-work counts were tracked: OpenAlex's 2026-07 backend
+    /// migration silently changed that field to bucket citations by the
+    /// cited work's publication year, which is a different metric entirely.
     static func citationsByYear(_ data: PersonData) -> [Int: Int] {
-        Dictionary(uniqueKeysWithValues: data.profile.countsByYear.map { ($0.year, $0.citedByCount) })
+        let workLevel = data.works.compactMap(\.citationsByYear)
+        guard !workLevel.isEmpty else {
+            return Dictionary(uniqueKeysWithValues: data.profile.countsByYear.map { ($0.year, $0.citedByCount) })
+        }
+        var counts: [Int: Int] = [:]
+        for series in workLevel {
+            for yc in series { counts[yc.year, default: 0] += yc.citedByCount }
+        }
+        return counts
+    }
+
+    /// True when some member's works all predate per-work citation tracking,
+    /// so their citation timing falls back to the untrustworthy author-level
+    /// field — Refresh Data fixes it.
+    static func staleCitationData(personData: [PersonData]) -> Bool {
+        personData.contains { data in
+            !data.works.isEmpty && data.works.allSatisfy { $0.citationsByYear == nil }
+        }
     }
 
     // MARK: Growth

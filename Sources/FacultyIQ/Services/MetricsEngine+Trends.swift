@@ -163,16 +163,36 @@ extension MetricsEngine {
         }
     }
 
-    /// Median cumulative works at each career year across the cohort, at
-    /// career years where at least two people have reached that point.
-    static func careerMedianSeries(personData: [PersonData]) -> [(careerYear: Int, median: Double)] {
+    /// Balanced-panel cohort median for the career chart.
+    struct CareerMedian {
+        var series: [(careerYear: Int, median: Double)]
+        var poolSize: Int         // members in the fixed pool
+        var span: Int             // career years the line covers
+    }
+
+    /// Median cumulative works at each career year, over a pool that is
+    /// FIXED across the whole line: members whose careers span the drawn
+    /// range. Recomputing the pool at each career year (the old behavior)
+    /// let the median dip and wiggle as short-career members aged out — a
+    /// composition artifact, since every individual series is non-decreasing.
+    /// A pointwise median over a fixed pool is guaranteed monotone.
+    ///
+    /// The line covers the longest stretch up to `span` career years that at
+    /// least `minPool` members fully cover; nil when no such stretch exists.
+    static func careerMedianSeries(personData: [PersonData], span: Int,
+                                   minPool: Int = 3) -> CareerMedian? {
         let seriesList = personData.map { careerWorksSeries(data: $0) }.filter { !$0.isEmpty }
-        guard let longest = seriesList.map(\.count).max(), seriesList.count >= 2 else { return [] }
-        return (1...longest).compactMap { t in
-            let values = seriesList.compactMap { $0.count >= t ? Double($0[t - 1].cumulativeWorks) : nil }
-            guard values.count >= 2 else { return nil }
-            return (careerYear: t, median: values.median)
+        let lengths = seriesList.map(\.count)
+        guard span >= 1,
+              let drawnSpan = (1...span).reversed().first(where: { t in
+                  lengths.count { $0 >= t } >= minPool
+              })
+        else { return nil }
+        let pool = seriesList.filter { $0.count >= drawnSpan }
+        let series = (1...drawnSpan).map { t in
+            (careerYear: t, median: pool.map { Double($0[t - 1].cumulativeWorks) }.median)
         }
+        return CareerMedian(series: series, poolSize: pool.count, span: drawnSpan)
     }
 
     // MARK: Rank prediction

@@ -454,7 +454,8 @@ private struct ProfileDetail: View {
             MetricsEngine.trajectoryProjections(data: data, promotion: $0)
         } ?? []
         let career = MetricsEngine.careerWorksSeries(data: data)
-        let cohortMedian = MetricsEngine.careerMedianSeries(personData: cohortData)
+        let cohortMedian = MetricsEngine.careerMedianSeries(personData: cohortData,
+                                                           span: career.count)
 
         return VStack(alignment: .leading, spacing: 12) {
             Text("Trajectory").font(.headline)
@@ -557,13 +558,15 @@ private struct ProfileDetail: View {
     }
 
     private func careerChart(person: [(careerYear: Int, cumulativeWorks: Int)],
-                             median: [(careerYear: Int, median: Double)]) -> some View {
+                             median: MetricsEngine.CareerMedian?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Cumulative works by career year, vs the cohort in view")
+            Text(median.map {
+                "Cumulative works by career year — median of the \($0.poolSize) members in view with \($0.span)+ year careers (fixed pool, same people at every point)"
+            } ?? "Cumulative works by career year")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Chart {
-                ForEach(median, id: \.careerYear) { point in
+                ForEach(median?.series ?? [], id: \.careerYear) { point in
                     LineMark(x: .value("Career Year", point.careerYear),
                              y: .value("Cumulative Works", point.median),
                              series: .value("Series", "Cohort median"))
@@ -577,10 +580,9 @@ private struct ProfileDetail: View {
                         .foregroundStyle(by: .value("Series", metrics.name))
                 }
             }
-            .chartForegroundStyleScale([
-                metrics.name: ChartPalette.series1,
-                "Cohort median": ChartPalette.series1Light,
-            ])
+            .chartForegroundStyleScale(median == nil
+                ? [metrics.name: ChartPalette.series1]
+                : [metrics.name: ChartPalette.series1, "Cohort median": ChartPalette.series1Light])
             .chartXAxisLabel("Years since first publication")
             .frame(height: 160)
         }

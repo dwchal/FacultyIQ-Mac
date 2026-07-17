@@ -134,16 +134,34 @@ final class TrendTests: XCTestCase {
         XCTAssertEqual(series.map(\.cumulativeWorks), [2, 2, 3, 3])
     }
 
-    func testCareerMedianSeriesRequiresTwoPeople() {
+    func testCareerMedianNilBelowMinimumPool() {
         let a = personData(workYears: [year - 2, year - 1, year])
-        XCTAssertTrue(MetricsEngine.careerMedianSeries(personData: [a]).isEmpty)
-
         let b = personData(workYears: [year - 4, year])
-        let median = MetricsEngine.careerMedianSeries(personData: [a, b])
-        // Overlap is limited to career years both have reached (a spans 3).
-        XCTAssertEqual(median.count, 3)
-        XCTAssertEqual(median[0].careerYear, 1)
-        XCTAssertEqual(median[0].median, 1)
+        XCTAssertNil(MetricsEngine.careerMedianSeries(personData: [a, b], span: 3))
+    }
+
+    func testCareerMedianUsesFixedPoolAndStaysMonotone() {
+        // Two 10-year careers with one early work each, two 4-year careers
+        // with steady output. The per-year-pool median used to jump to the
+        // high performers early and dip once they aged out; the balanced
+        // panel fixes the pool (all four) and trims the span to what they
+        // all cover, so the line can only rise.
+        let longA = personData(workYears: [year - 9])
+        let longB = personData(workYears: [year - 9])
+        let shortC = personData(workYears: [year - 3, year - 2, year - 1, year])
+        let shortD = personData(workYears: [year - 3, year - 2, year - 1, year])
+
+        let median = MetricsEngine.careerMedianSeries(
+            personData: [longA, longB, shortC, shortD], span: 10)
+        XCTAssertEqual(median?.span, 4)      // longest stretch ≥3 members cover
+        XCTAssertEqual(median?.poolSize, 4)
+        XCTAssertEqual(median?.series.map(\.median), [1, 1.5, 2, 2.5])
+        // A junior member's chart only asks for their own span; the pool
+        // stays fixed over that shorter range.
+        let junior = MetricsEngine.careerMedianSeries(
+            personData: [longA, longB, shortC, shortD], span: 2)
+        XCTAssertEqual(junior?.span, 2)
+        XCTAssertEqual(junior?.poolSize, 4)
     }
 
     func testRankPrediction() {

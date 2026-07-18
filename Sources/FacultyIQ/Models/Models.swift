@@ -50,6 +50,20 @@ extension FacultyMember {
     /// On the promotion track and counted in benchmarks.
     var isActive: Bool { (status ?? .active) == .active }
 
+    private static let nameSuffixes: Set<String> = ["jr", "sr", "ii", "iii", "iv", "md", "phd", "do"]
+
+    /// Surname key for alphabetizing people lists: the last name token,
+    /// skipping degree/generation suffixes, honoring "Surname, First" input,
+    /// diacritic- and case-folded. "Omar Abu Saleh" sorts under Saleh and
+    /// "Mary Jo Kasten" under Kasten.
+    var surnameSortKey: String {
+        let beforeComma = name.split(separator: ",").first.map(String.init) ?? name
+        let tokens = beforeComma.split(whereSeparator: \.isWhitespace).map(String.init)
+        let surname = tokens.last { !Self.nameSuffixes.contains($0.lowercased().filter(\.isLetter)) }
+        return (surname ?? name)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+    }
+
     /// Case-insensitive match against name, rank, and division — the filter
     /// behind the search fields on the people lists.
     func matches(search: String) -> Bool {

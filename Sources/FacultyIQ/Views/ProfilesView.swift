@@ -9,6 +9,7 @@ struct ProfilesView: View {
 
     private var membersWithData: [FacultyMember] {
         store.filteredRoster.filter { store.personData[$0.id] != nil }
+            .sorted { ($0.surnameSortKey, $0.name) < ($1.surnameSortKey, $1.name) }
     }
 
     /// The member list under the current search; the detail pane keeps showing

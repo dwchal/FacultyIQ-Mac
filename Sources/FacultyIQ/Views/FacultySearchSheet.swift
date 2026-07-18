@@ -11,7 +11,7 @@ struct FacultySearchSheet: View {
     private var matches: [FacultyMember] {
         store.roster
             .filter { $0.matches(search: query) }
-            .sorted { $0.name < $1.name }
+            .sorted { ($0.surnameSortKey, $0.name) < ($1.surnameSortKey, $1.name) }
     }
 
     /// Members without fetched data can't show a profile yet.

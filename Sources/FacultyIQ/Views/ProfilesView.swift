@@ -56,8 +56,20 @@ struct ProfilesView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
+            applyProfileFocus()
             if selectedID == nil { selectedID = membersWithData.first?.id }
         }
+        .onChange(of: store.profileFocusID) { applyProfileFocus() }
+    }
+
+    /// Select the member the Find Faculty sheet picked, clearing any search
+    /// filter that would hide them.
+    private func applyProfileFocus() {
+        guard let id = store.profileFocusID,
+              membersWithData.contains(where: { $0.id == id }) else { return }
+        searchText = ""
+        selectedID = id
+        store.profileFocusID = nil
     }
 
     /// Ten-year works sparkline with a growth arrow (last 3y vs prior 3y).

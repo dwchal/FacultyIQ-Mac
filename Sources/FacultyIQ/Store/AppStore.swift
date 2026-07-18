@@ -34,11 +34,31 @@ final class AppStore: ObservableObject {
     @Published var progress: Double? = nil   // 0...1 while a batch runs
     @Published var lastError: String?
 
+    // MARK: Cross-view navigation
+
+    /// Presents the global Find Faculty sheet (Go → Find Faculty…, ⌘F).
+    @Published var showFacultySearch = false
+    /// A member the Profiles tab should select on next appearance — set by
+    /// the Find Faculty sheet, consumed (and cleared) by ProfilesView.
+    @Published var profileFocusID: UUID?
+    /// Sidebar tab a background event wants opened (e.g. clicking the
+    /// What's New notification) — consumed and cleared by ContentView.
+    @Published var pendingSidebarTarget: SidebarItem?
+
     private let client = OpenAlexClient.shared
+    private let notificationDelegate = NotificationDelegate()
 
     init() {
         load()
         snapshots = SnapshotStore.load()
+        // Clicking the What's New notification should land on What's New.
+        // No notification center exists under `swift run` (no app bundle).
+        if Bundle.main.bundleIdentifier != nil {
+            notificationDelegate.onOpenWhatsNew = { [weak self] in
+                self?.pendingSidebarTarget = .whatsNew
+            }
+            UNUserNotificationCenter.current().delegate = notificationDelegate
+        }
     }
 
     // MARK: Derived state
@@ -688,10 +708,12 @@ final class AppStore: ObservableObject {
     }
 
     /// Run an async operation over members with progress reporting; individual
-    /// failures are collected rather than aborting the batch.
+    /// failures are collected rather than aborting the batch. Re-entry is
+    /// dropped: menu shortcuts can fire while a batch is already running.
     private func runBatch(label: String,
                           items: [FacultyMember],
                           operation: @escaping (FacultyMember) async throws -> Void) async {
+        guard !isBusy else { return }
         isBusy = true
         lastError = nil
         var failures: [String] = []
@@ -755,5 +777,25 @@ final class AppStore: ObservableObject {
         deltas = state.deltas ?? [:]
         lastUpdateCheck = state.lastUpdateCheck
         excludedWorks = state.excludedWorks ?? [:]
+    }
+}
+
+/// Routes notification clicks back into the app. Kept outside AppStore so
+/// the store stays free of NSObject/delegate plumbing.
+private final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    var onOpenWhatsNew: (@MainActor () -> Void)?
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse) async {
+        guard response.notification.request.identifier == "facultyiq.whatsnew" else { return }
+        await MainActor.run { onOpenWhatsNew?() }
+    }
+
+    /// Show the banner even when FacultyIQ is frontmost (default is to
+    /// silently drop notifications for the active app).
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification) async
+        -> UNNotificationPresentationOptions {
+        [.banner]
     }
 }

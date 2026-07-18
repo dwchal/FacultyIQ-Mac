@@ -34,18 +34,61 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     }
 }
 
+/// Sidebar grouping: analysis sections ordered by daily use, with roster
+/// management and exports together in a Data section at the bottom.
+enum SidebarSection: String, CaseIterable {
+    case overview = "Overview"
+    case faculty = "Faculty"
+    case research = "Research Output"
+    case collaboration = "Collaboration"
+    case data = "Data"
+
+    var items: [SidebarItem] {
+        switch self {
+        case .overview: [.dashboard, .whatsNew]
+        case .faculty: [.profiles, .promotion]
+        case .research: [.topics, .publications, .funding]
+        case .collaboration: [.network, .external]
+        case .data: [.roster, .resolution, .export]
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var selection: SidebarItem? = .roster
+    @State private var selection: SidebarItem?
+    @AppStorage("lastSidebarSelection") private var lastSelection = ""
 
     var body: some View {
         NavigationSplitView {
-            List(SidebarItem.allCases, selection: $selection) { item in
-                Label(item.rawValue, systemImage: item.icon)
-                    .badge(badge(for: item))
-                    .tag(item) // selection is SidebarItem?, so rows must tag the item, not its ID
+            List(selection: $selection) {
+                ForEach(SidebarSection.allCases, id: \.self) { section in
+                    Section(section.rawValue) {
+                        ForEach(section.items) { item in
+                            Label(item.rawValue, systemImage: item.icon)
+                                .badge(badge(for: item))
+                                .tag(item) // selection is SidebarItem?, so rows must tag the item, not its ID
+                        }
+                    }
+                }
             }
             .navigationSplitViewColumnWidth(min: 190, ideal: 210)
+            .onAppear {
+                // Return to the last-used tab; before that habit exists,
+                // land where the work is: setup until data exists, then
+                // the dashboard.
+                guard selection == nil else { return }
+                if store.roster.isEmpty {
+                    selection = .roster
+                } else if let saved = SidebarItem(rawValue: lastSelection) {
+                    selection = saved
+                } else {
+                    selection = store.personData.isEmpty ? .resolution : .dashboard
+                }
+            }
+            .onChange(of: selection) {
+                if let selection { lastSelection = selection.rawValue }
+            }
         } detail: {
             detailView
                 .navigationTitle(selection?.rawValue ?? "FacultyIQ")
@@ -62,6 +105,19 @@ struct ContentView: View {
                 statusBar
             }
         }
+        .sheet(isPresented: $store.showFacultySearch) {
+            FacultySearchSheet()
+        }
+        .onChange(of: store.profileFocusID) {
+            // The Find Faculty sheet picked someone: show their profile.
+            if store.profileFocusID != nil { selection = .profiles }
+        }
+        .onChange(of: store.pendingSidebarTarget) {
+            if let target = store.pendingSidebarTarget {
+                selection = target
+                store.pendingSidebarTarget = nil
+            }
+        }
         .alert("Something went wrong", isPresented: errorBinding) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -71,7 +127,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        switch selection ?? .roster {
+        switch selection ?? .dashboard {
         case .roster: RosterView()
         case .resolution: ResolutionView()
         case .dashboard: DashboardView()
@@ -90,7 +146,7 @@ struct ContentView: View {
     /// Data tabs get the shared refresh button; Roster and Resolution manage
     /// their own workflow toolbars.
     private var showsRefresh: Bool {
-        switch selection ?? .roster {
+        switch selection ?? .dashboard {
         case .dashboard, .whatsNew, .profiles, .promotion, .topics, .publications, .funding,
              .network, .external, .export: true
         case .roster, .resolution: false

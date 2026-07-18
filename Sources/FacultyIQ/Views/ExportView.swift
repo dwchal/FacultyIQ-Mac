@@ -2,6 +2,25 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Shared NSSavePanel wrapper for the Export tab and the File-menu export
+/// commands. Nil means the user cancelled.
+@MainActor
+enum SavePanel {
+    static func run(defaultName: String, type: UTType,
+                    write: (URL) throws -> Void) -> Result<String, Error>? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [type]
+        panel.nameFieldStringValue = defaultName
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        do {
+            try write(url)
+            return .success(url.lastPathComponent)
+        } catch {
+            return .failure(error)
+        }
+    }
+}
+
 struct ExportView: View {
     @EnvironmentObject private var store: AppStore
     @State private var confirmation: String?
@@ -204,15 +223,10 @@ struct ExportView: View {
     }
 
     private func save(defaultName: String, type: UTType, write: (URL) throws -> Void) {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [type]
-        panel.nameFieldStringValue = defaultName
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try write(url)
-            confirmation = "Saved \(url.lastPathComponent)"
-        } catch {
-            store.lastError = error.localizedDescription
+        switch SavePanel.run(defaultName: defaultName, type: type, write: write) {
+        case .success(let filename): confirmation = "Saved \(filename)"
+        case .failure(let error): store.lastError = error.localizedDescription
+        case nil: break   // user cancelled
         }
     }
 

@@ -9,6 +9,8 @@ struct RosterView: View {
     @State private var editorTarget: EditorTarget?
     @State private var sortOrder: [KeyPathComparator<FacultyMember>] = [] // empty = import order
     @State private var searchText = ""
+    @State private var dropTargeted = false
+    @State private var pendingDropURL: URL?
 
     private enum EditorTarget: Identifiable {
         case new
@@ -66,6 +68,35 @@ struct RosterView: View {
             isPresented: $confirmReplace
         ) {
             Button("Clear Everything", role: .destructive) { store.clearAll() }
+        }
+        // Drop a roster CSV anywhere on the tab to import it.
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first(where: { ["csv", "txt"].contains($0.pathExtension.lowercased()) })
+            else { return false }
+            if store.roster.isEmpty {
+                store.importRoster(from: url)
+            } else {
+                pendingDropURL = url   // replacing a roster deserves a confirmation
+            }
+            return true
+        } isTargeted: { dropTargeted = $0 }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.accentColor, lineWidth: 3)
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .confirmationDialog(
+            "Import \(pendingDropURL?.lastPathComponent ?? "this file")? The current roster, resolutions, and fetched data will be replaced.",
+            isPresented: Binding(get: { pendingDropURL != nil },
+                                 set: { if !$0 { pendingDropURL = nil } })
+        ) {
+            Button("Replace Roster", role: .destructive) {
+                if let url = pendingDropURL { store.importRoster(from: url) }
+                pendingDropURL = nil
+            }
         }
         .sheet(item: $editorTarget) { target in
             switch target {

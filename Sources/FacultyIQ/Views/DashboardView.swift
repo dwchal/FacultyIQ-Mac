@@ -144,10 +144,18 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 4) {
                 CitationsPerYearChart(data: MetricsEngine.citationsPerYear(personData: fetched))
                 if MetricsEngine.staleCitationData(personData: fetched) {
-                    Label("Some members' data predates per-work citation tracking — Refresh Data for accurate citation timing.",
-                          systemImage: "exclamationmark.triangle")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Label("Cached works predate per-work citation tracking, so this chart can only approximate by publication year (like the chart below).",
+                              systemImage: "exclamationmark.triangle")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Button("Refresh All Works") {
+                            Task { await store.fetchAll(refresh: true) }
+                        }
+                        .controlSize(.small)
+                        .disabled(store.isBusy)
+                        .help("Re-download every member's works with per-work citation timing")
+                    }
                 }
             }
         }

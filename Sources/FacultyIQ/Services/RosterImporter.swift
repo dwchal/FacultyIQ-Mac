@@ -58,7 +58,8 @@ enum RosterImporter {
                 scholarID: value(.scholarID),
                 orcid: value(.orcid).map(cleanORCID),
                 semanticScholarID: value(.semanticScholarID),
-                associations: value(.associations)
+                associations: value(.associations),
+                notes: value(.notes)
             )
         }
     }
@@ -67,7 +68,7 @@ enum RosterImporter {
         case name, email, rank, division, status, lastPromotion, hireDate
         case assistantStart, associateStart, fullStart
         case selfReportedPubs, scopusID, scholarID, orcid, semanticScholarID
-        case associations
+        case associations, notes
     }
 
     /// Match each field to the best header column by keyword.
@@ -99,6 +100,10 @@ enum RosterImporter {
         mapping[.orcid] = firstIndex { $0.contains("orcid") }
         mapping[.semanticScholarID] = firstIndex { $0.contains("semantic") }
         mapping[.associations] = firstIndex { $0.contains("association") || $0.contains("specialty") }
+        // "note"/"comment" only — never "notes on associations", which the
+        // associations column above already claims.
+        mapping[.notes] = firstIndex { $0 == "notes" || $0 == "note" || $0 == "review notes" }
+            ?? firstIndex { $0.contains("comment") }
         return mapping.compactMapValues { $0 }
     }
 

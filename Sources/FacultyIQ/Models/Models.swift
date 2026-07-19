@@ -44,6 +44,12 @@ struct FacultyMember: Identifiable, Codable, Hashable {
     var orcid: String?
     var semanticScholarID: String?
     var associations: String?
+    /// Free-text review notes — the thing a chair jots before an annual
+    /// review. Local only, never sent to any API.
+    var notes: String? = nil
+    /// When the member was last reviewed, set by hand from the profile. Old
+    /// state files decode this as nil.
+    var lastReviewed: Date? = nil
 }
 
 extension FacultyMember {
@@ -69,7 +75,7 @@ extension FacultyMember {
     func matches(search: String) -> Bool {
         let query = search.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return true }
-        return [name, rank, division].compactMap(\.self)
+        return [name, rank, division, notes].compactMap(\.self)
             .contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }
@@ -178,6 +184,18 @@ struct Work: Identifiable, Codable, Hashable {
     // Citations this work received per year (work-level counts_by_year,
     // last decade or so); nil = fetched before per-work counts were tracked.
     var citationsByYear: [WorkYearCites]? = nil
+    // Funders credited on the paper; nil = fetched before funders were tracked
+    // (which is not the same as an empty array — genuinely unfunded work).
+    var grants: [WorkGrant]? = nil
+}
+
+/// A funder credited on one work. Built from OpenAlex's `awards` array when
+/// the paper records a specific award, and from the plainer `funders` list
+/// when it only names the funder.
+struct WorkGrant: Codable, Hashable {
+    var funderID: String         // short form, e.g. "F4320306076"
+    var funderName: String
+    var awardID: String?         // the funder's own award number, when recorded
 }
 
 /// Citations one work received during one year.

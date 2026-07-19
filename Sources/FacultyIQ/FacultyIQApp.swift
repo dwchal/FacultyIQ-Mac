@@ -16,8 +16,8 @@ struct FacultyIQApp: App {
         }
     }
 
-    /// Hourly heartbeat for the Settings-controlled automatic update check;
-    /// autoCheckIfDue() itself decides whether a check is actually due.
+    /// Hourly heartbeat for the Settings-controlled automatic update check and
+    /// scheduled reports; each decides for itself whether it's actually due.
     private let autoCheckTimer = Timer.publish(every: 3600, on: .main, in: .common).autoconnect()
 
     var body: some Scene {
@@ -25,9 +25,9 @@ struct FacultyIQApp: App {
             ContentView()
                 .environmentObject(store)
                 .frame(minWidth: 980, minHeight: 640)
-                .task { await store.autoCheckIfDue() }
+                .task { await heartbeat() }
                 .onReceive(autoCheckTimer) { _ in
-                    Task { await store.autoCheckIfDue() }
+                    Task { await heartbeat() }
                 }
         }
         .defaultSize(width: 1200, height: 780)
@@ -65,6 +65,14 @@ struct FacultyIQApp: App {
             SettingsView()
                 .environmentObject(store)
         }
+    }
+
+    /// One heartbeat tick: refresh data if the update check is due, then write
+    /// a scheduled report if that's due. Ordered so a report generated right
+    /// after a check reflects the data the check just brought in.
+    private func heartbeat() async {
+        await store.autoCheckIfDue()
+        await ScheduledReport.run(store: store)
     }
 
     /// File-menu twin of the Export tab's Faculty Metrics row — exports the

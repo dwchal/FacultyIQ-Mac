@@ -30,6 +30,15 @@ struct ExportView: View {
         store.filteredRoster.filter { store.personData[$0.id] != nil }
     }
 
+    private var fundingCliffs: [MetricsEngine.FundingCliff] {
+        MetricsEngine.fundingCliffs(roster: store.filteredRoster, enrichment: store.enrichment)
+    }
+
+    private var funderCredits: [FunderCredit] {
+        MetricsEngine.funderCredits(roster: store.filteredRoster,
+                                    personData: store.effectivePersonData)
+    }
+
     var body: some View {
         Form {
             Section {
@@ -103,6 +112,33 @@ struct ExportView: View {
                     }
                 ) {
                     MetricsEngine.grantsCSV(roster: store.filteredRoster, enrichment: store.enrichment)
+                }
+                exportRow(
+                    "NSF Awards",
+                    detail: "One row per NSF award: role, program, project period, total award.",
+                    filename: "nsf_awards.csv",
+                    disabled: !store.filteredRoster.contains {
+                        !(store.enrichment[$0.id]?.nsf?.awards.isEmpty ?? true)
+                    }
+                ) {
+                    MetricsEngine.nsfAwardsCSV(roster: store.filteredRoster,
+                                               enrichment: store.enrichment)
+                }
+                exportRow(
+                    "Funding Cliffs",
+                    detail: "Members whose last award ends within a year with nothing running past it.",
+                    filename: "funding_cliffs.csv",
+                    disabled: fundingCliffs.isEmpty
+                ) {
+                    MetricsEngine.fundingCliffsCSV(fundingCliffs)
+                }
+                exportRow(
+                    "Funders",
+                    detail: "Funders credited on the cohort's publications — every agency, from the papers themselves.",
+                    filename: "funders.csv",
+                    disabled: funderCredits.isEmpty
+                ) {
+                    MetricsEngine.fundersCSV(funderCredits)
                 }
             } header: {
                 Text("Data Exports")
@@ -234,7 +270,7 @@ struct ExportView: View {
     }
 
     private func rosterCSV() -> String {
-        var lines = ["Name,Email,Rank,Division,Hire Year,ORCID,Scopus ID,OpenAlex ID,Resolved Name,Resolution Method"]
+        var lines = ["Name,Email,Rank,Division,Hire Year,ORCID,Scopus ID,OpenAlex ID,Resolved Name,Resolution Method,Last Reviewed,Notes"]
         for member in store.filteredRoster {
             let res = store.resolution(for: member)
             lines.append([
@@ -248,6 +284,8 @@ struct ExportView: View {
                 res?.openalexID ?? "",
                 res?.displayName ?? "",
                 res?.method.rawValue ?? "",
+                member.lastReviewed.map { $0.formatted(.iso8601.year().month().day()) } ?? "",
+                member.notes ?? "",
             ].map(MetricsEngine.csvEscape).joined(separator: ","))
         }
         return lines.joined(separator: "\n") + "\n"

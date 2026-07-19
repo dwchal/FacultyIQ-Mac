@@ -143,6 +143,12 @@ enum DossierPages {
                 parts.append("\(share.formatted(.percent.precision(.fractionLength(0)))) of \(quality.ratedWorks) rated publications in Q1 journals (Scopus CiteScore)")
             }
         }
+        if let awards = enrichment?.nsf?.awards, !awards.isEmpty {
+            let total = awards.map(\.totalAward).reduce(0, +)
+                .formatted(.currency(code: "USD").precision(.fractionLength(0)))
+            let asPI = awards.count(where: \.isPI)
+            parts.append("NSF funding: \(total) across \(awards.count) awards (\(asPI) as PI)")
+        }
         if let trials = enrichment?.trials?.trials, !trials.isEmpty {
             let summary = MetricsEngine.trialsSummary(trials)
             parts.append("\(summary.total) registered clinical \(summary.total == 1 ? "trial" : "trials") (\(summary.asPI) as PI, \(summary.active) active)")

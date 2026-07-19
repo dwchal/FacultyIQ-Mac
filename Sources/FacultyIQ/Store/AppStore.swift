@@ -11,6 +11,11 @@ final class AppStore: ObservableObject {
     @Published var personData: [UUID: PersonData] = [:]
     @Published var enrichment: [UUID: Enrichment] = [:]
 
+    /// Keyless journal quality from the OpenAlex sources index, keyed by ISSN.
+    /// Workspace-wide rather than per member: journals are shared across the
+    /// roster, so one lookup serves everyone.
+    @Published var openalexJournals: OpenAlexJournalData?
+
     /// Works the user marked "not this member's" — misattributed by OpenAlex
     /// disambiguation. Kept out of every metric but still listed (flagged) in
     /// Publications so the exclusion can be undone.
@@ -74,6 +79,7 @@ final class AppStore: ObservableObject {
         var coauthorNetwork: CoauthorNetwork?
         var mentorshipEdges: [MentorshipEdge]?
         var externalCollaborators: [ExternalCollaborator]?
+        var journalRatings: [String: MetricsEngine.JournalRating]?
     }
 
     func invalidateDerived() {
@@ -91,16 +97,33 @@ final class AppStore: ObservableObject {
         return roster.filter { $0.division == filter }
     }
 
-    /// personData with each member's excluded works removed and headline
-    /// counts adjusted — what every metric and chart should consume. Raw
-    /// personData remains the source for the Publications list, where
-    /// excluded works stay visible so the exclusion can be undone.
+    /// personData with each member's excluded works removed, superseded
+    /// preprints collapsed, and headline counts adjusted — what every metric
+    /// and chart should consume. Raw personData remains the source for the
+    /// Publications list, where both stay visible so exclusions can be undone
+    /// and preprint pairs can be inspected.
     var effectivePersonData: [UUID: PersonData] {
         if let cached = derived.effectivePersonData { return cached }
+        let collapse = UserDefaults.standard.object(forKey: "collapsePreprints") as? Bool ?? true
         let result = Dictionary(uniqueKeysWithValues: personData.map { id, data in
-            (id, MetricsEngine.applyingExclusions(data, excluded: excludedWorks[id] ?? []))
+            var effective = MetricsEngine.applyingExclusions(data, excluded: excludedWorks[id] ?? [])
+            if collapse {
+                effective = MetricsEngine.collapsingPreprints(effective)
+            }
+            return (id, effective)
         })
         derived.effectivePersonData = result
+        return result
+    }
+
+    /// Journal quality per ISSN from whichever sources are available: Scopus
+    /// where the user has a key and it has a CiteScore, OpenAlex everywhere else.
+    var journalRatings: [String: MetricsEngine.JournalRating] {
+        if let cached = derived.journalRatings { return cached }
+        let result = MetricsEngine.journalRatings(
+            scopus: MetricsEngine.mergedJournals(enrichment: enrichment),
+            openalex: openalexJournals?.byISSN ?? [:])
+        derived.journalRatings = result
         return result
     }
 
@@ -305,6 +328,21 @@ final class AppStore: ObservableObject {
             deltas[member.id] = nil
             excludedWorks[member.id] = nil
         }
+        save()
+    }
+
+    /// Save review notes without going through updateMember, whose ID-change
+    /// detection would needlessly consider dropping fetched data.
+    func setNotes(_ notes: String?, for memberID: UUID) {
+        guard let index = roster.firstIndex(where: { $0.id == memberID }) else { return }
+        roster[index].notes = notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        save()
+    }
+
+    /// Stamp the member as reviewed now, or clear the stamp.
+    func setReviewed(_ date: Date?, for memberID: UUID) {
+        guard let index = roster.firstIndex(where: { $0.id == memberID }) else { return }
+        roster[index].lastReviewed = date
         save()
     }
 
@@ -534,7 +572,9 @@ final class AppStore: ObservableObject {
     }
 
     /// Which enrichment sources the user has switched on in Settings.
-    var enabledEnrichmentSources: (icite: Bool, reporter: Bool, semanticScholar: Bool, scopus: Bool, trials: Bool) {
+    /// Journal quality defaults on: it's keyless and one request per 50 ISSNs.
+    var enabledEnrichmentSources: (icite: Bool, reporter: Bool, semanticScholar: Bool,
+                                   scopus: Bool, trials: Bool, nsf: Bool, journals: Bool) {
         let defaults = UserDefaults.standard
         let scopusKey = defaults.string(forKey: "scopusAPIKey")?
             .trimmingCharacters(in: .whitespaces) ?? ""
@@ -542,13 +582,15 @@ final class AppStore: ObservableObject {
                 defaults.bool(forKey: "enableReporter"),
                 defaults.bool(forKey: "enableSemanticScholar"),
                 defaults.bool(forKey: "enableScopus") && !scopusKey.isEmpty,
-                defaults.bool(forKey: "enableTrials"))
+                defaults.bool(forKey: "enableTrials"),
+                defaults.bool(forKey: "enableNSF"),
+                defaults.object(forKey: "enableJournalMetrics") as? Bool ?? true)
     }
 
     var anyEnrichmentEnabled: Bool {
         let sources = enabledEnrichmentSources
         return sources.icite || sources.reporter || sources.semanticScholar
-            || sources.scopus || sources.trials
+            || sources.scopus || sources.trials || sources.nsf || sources.journals
     }
 
     /// Opt-in second phase after the OpenAlex fetch: pull iCite citation
@@ -590,6 +632,62 @@ final class AppStore: ObservableObject {
                 try await self.enrichTrials(member)
             }
         }
+        if sources.nsf {
+            let pending = members.filter { refresh || enrichment[$0.id]?.nsf == nil }
+            await runBatch(label: "Enriching (NSF Awards)", items: pending) { member in
+                try await self.enrichNSF(member)
+            }
+        }
+        if sources.journals {
+            await fetchJournalMetrics(refresh: refresh)
+        }
+    }
+
+    /// Journal quality for every ISSN in the cohort's works, from the keyless
+    /// OpenAlex sources index. Fetched once for the workspace rather than per
+    /// member, and skipped when nothing new has appeared since the last run.
+    func fetchJournalMetrics(refresh: Bool = false) async {
+        let issns = Set(personData.values.flatMap { $0.works.compactMap(\.venueISSN) })
+        guard !issns.isEmpty else { return }
+        let known = Set(openalexJournals?.byISSN.keys ?? [:].keys)
+        let missing = refresh ? Array(issns) : Array(issns.subtracting(known))
+        guard !missing.isEmpty else { return }
+
+        isBusy = true
+        progressText = "Fetching journal metrics (\(missing.count) venues)…"
+        defer {
+            progress = nil
+            progressText = ""
+            isBusy = false
+        }
+        do {
+            var byISSN = refresh ? [:] : (openalexJournals?.byISSN ?? [:])
+            for metrics in try await client.sources(issns: missing) {
+                byISSN[metrics.issn] = metrics
+            }
+            // Key every requested ISSN that resolved through a source's
+            // alternate ISSN, so lookups by the work's issn_l always hit.
+            for issn in missing where byISSN[issn] == nil {
+                if let match = byISSN.values.first(where: { $0.issn == issn }) {
+                    byISSN[issn] = match
+                }
+            }
+            openalexJournals = OpenAlexJournalData(byISSN: byISSN, fetchedAt: Date())
+            save()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// NSF awards where the member is PI or co-PI. Like RePORTER, NSF matches
+    /// on names alone, so this attaches only what the client's token matcher
+    /// verifies; the profile card lists the awards for eyeballing.
+    private func enrichNSF(_ member: FacultyMember) async throws {
+        let awards = try await NSFClient.shared.awards(piName: member.name)
+        var entry = enrichment[member.id] ?? Enrichment()
+        entry.nsf = NSFData(awards: awards, confirmedPIName: member.name, fetchedAt: Date())
+        enrichment[member.id] = entry
+        save()
     }
 
     /// Author metrics via the member's Scopus ID plus journal quality metrics
@@ -853,7 +951,7 @@ final class AppStore: ObservableObject {
 
     // MARK: Persistence
 
-    private struct SavedState: Codable {
+    struct SavedState: Codable {
         var roster: [FacultyMember]
         var resolutions: [UUID: Resolution]
         var personData: [UUID: PersonData]
@@ -861,6 +959,7 @@ final class AppStore: ObservableObject {
         var deltas: [UUID: RefreshDelta]?    // optional: absent in pre-what's-new state files
         var lastUpdateCheck: Date?
         var excludedWorks: [UUID: Set<String>]?  // optional: absent in pre-exclusion state files
+        var openalexJournals: OpenAlexJournalData?  // optional: absent before journal metrics
     }
 
     private var stateURL: URL {
@@ -869,10 +968,7 @@ final class AppStore: ObservableObject {
 
     func save() {
         invalidateDerived()
-        let state = SavedState(roster: roster, resolutions: resolutions,
-                               personData: personData, enrichment: enrichment,
-                               deltas: deltas, lastUpdateCheck: lastUpdateCheck,
-                               excludedWorks: excludedWorks.isEmpty ? nil : excludedWorks)
+        let state = currentState
         do {
             try FileManager.default.createDirectory(
                 at: CacheStore.supportDirectory, withIntermediateDirectories: true)
@@ -883,9 +979,17 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func load() {
-        guard let data = try? Data(contentsOf: stateURL),
-              let state = try? JSONDecoder().decode(SavedState.self, from: data) else { return }
+    /// The full workspace as one encodable value — what save() writes and
+    /// what the archive exporter bundles.
+    var currentState: SavedState {
+        SavedState(roster: roster, resolutions: resolutions,
+                   personData: personData, enrichment: enrichment,
+                   deltas: deltas, lastUpdateCheck: lastUpdateCheck,
+                   excludedWorks: excludedWorks.isEmpty ? nil : excludedWorks,
+                   openalexJournals: openalexJournals)
+    }
+
+    private func apply(_ state: SavedState) {
         roster = state.roster
         resolutions = state.resolutions
         personData = state.personData
@@ -893,6 +997,77 @@ final class AppStore: ObservableObject {
         deltas = state.deltas ?? [:]
         lastUpdateCheck = state.lastUpdateCheck
         excludedWorks = state.excludedWorks ?? [:]
+        openalexJournals = state.openalexJournals
+    }
+
+    private func load() {
+        guard let data = try? Data(contentsOf: stateURL),
+              let state = try? JSONDecoder().decode(SavedState.self, from: data) else { return }
+        apply(state)
+    }
+
+    // MARK: Workspace archive
+
+    /// Everything worth carrying to another machine: the workspace state plus
+    /// the metric history, which lives in its own file. The API response cache
+    /// is deliberately left out — it re-fetches, and it's the bulk of the size.
+    struct WorkspaceArchive: Codable {
+        var formatVersion: Int
+        var exportedAt: Date
+        var appVersion: String?
+        var state: SavedState
+        var snapshots: [MetricSnapshot]
+
+        static let currentFormatVersion = 1
+    }
+
+    func archiveData() throws -> Data {
+        let archive = WorkspaceArchive(
+            formatVersion: WorkspaceArchive.currentFormatVersion,
+            exportedAt: Date(),
+            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+            state: currentState,
+            snapshots: snapshots)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(archive)
+    }
+
+    enum ArchiveError: LocalizedError {
+        case unreadable
+        case tooNew(Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .unreadable:
+                "That file isn't a FacultyIQ workspace archive."
+            case .tooNew(let version):
+                "That archive was written by a newer version of FacultyIQ (format \(version)). Update the app and try again."
+            }
+        }
+    }
+
+    /// Replace the workspace with an archive's contents. Destructive by
+    /// design — the caller confirms first — and it writes the restored state
+    /// straight through so a crash before the next save can't lose it.
+    func importArchive(from url: URL) throws {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { throw ArchiveError.unreadable }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let archive = try? decoder.decode(WorkspaceArchive.self, from: data) else {
+            throw ArchiveError.unreadable
+        }
+        guard archive.formatVersion <= WorkspaceArchive.currentFormatVersion else {
+            throw ArchiveError.tooNew(archive.formatVersion)
+        }
+        divisionFilter = nil
+        lastError = nil
+        apply(archive.state)
+        snapshots = archive.snapshots
+        SnapshotStore.save(snapshots)
+        save()
     }
 }
 

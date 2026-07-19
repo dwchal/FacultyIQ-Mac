@@ -253,6 +253,244 @@ extension MetricsEngine {
         return bars.sorted { ($0.memberName, $0.start) < ($1.memberName, $1.start) }
     }
 
+    // MARK: Work-level funders (any agency)
+
+    /// Funders credited across the cohort's publications, most-credited first.
+    /// This sees every agency and foundation — not just NIH and NSF — because
+    /// the credit is recorded on the paper rather than matched by PI name.
+    /// A coauthored work counts once.
+    static func funderCredits(roster: [FacultyMember],
+                              personData: [UUID: PersonData]) -> [FunderCredit] {
+        var name: [String: String] = [:]
+        var workIDs: [String: Set<String>] = [:]
+        var awardIDs: [String: Set<String>] = [:]
+        var peopleCount: [String: Int] = [:]
+        for member in roster {
+            guard let data = personData[member.id] else { continue }
+            var personFunders = Set<String>()
+            for work in data.works {
+                for grant in work.grants ?? [] {
+                    name[grant.funderID] = grant.funderName
+                    workIDs[grant.funderID, default: []].insert(work.id)
+                    if let awardID = grant.awardID {
+                        awardIDs[grant.funderID, default: []].insert(awardID)
+                    }
+                    personFunders.insert(grant.funderID)
+                }
+            }
+            for funder in personFunders {
+                peopleCount[funder, default: 0] += 1
+            }
+        }
+        return workIDs
+            .map { funderID, works in
+                FunderCredit(
+                    funderID: funderID,
+                    name: name[funderID] ?? funderID,
+                    works: works.count,
+                    people: peopleCount[funderID] ?? 0,
+                    awardCount: awardIDs[funderID]?.count ?? 0)
+            }
+            .sorted { ($0.works, $0.people, $1.name) > ($1.works, $1.people, $0.name) }
+    }
+
+    /// True when nobody's works carry funder data yet — the cohort predates
+    /// funder tracking and needs a refetch, which the view says out loud
+    /// rather than showing an empty chart.
+    static func funderDataMissing(roster: [FacultyMember],
+                                  personData: [UUID: PersonData]) -> Bool {
+        let fetched = roster.compactMap { personData[$0.id] }.filter { !$0.works.isEmpty }
+        guard !fetched.isEmpty else { return false }
+        return fetched.allSatisfy { data in data.works.allSatisfy { $0.grants == nil } }
+    }
+
+    // MARK: NSF awards
+
+    /// Cohort NSF rollup: awards shared by two roster members count once.
+    struct NSFSummary {
+        var totalAwarded: Int
+        var awardCount: Int
+        var activeCount: Int
+        var fundedMembers: Int
+        var asPI: Int
+    }
+
+    static func nsfSummary(roster: [FacultyMember],
+                           enrichment: [UUID: Enrichment],
+                           asOf now: Date = Date()) -> NSFSummary? {
+        var distinct: [String: NSFAward] = [:]
+        var funded = 0
+        for member in roster {
+            let awards = enrichment[member.id]?.nsf?.awards ?? []
+            guard !awards.isEmpty else { continue }
+            funded += 1
+            for award in awards where distinct[award.awardID] == nil {
+                distinct[award.awardID] = award
+            }
+        }
+        guard !distinct.isEmpty else { return nil }
+        let awards = Array(distinct.values)
+        return NSFSummary(
+            totalAwarded: awards.map(\.totalAward).reduce(0, +),
+            awardCount: awards.count,
+            activeCount: awards.count { ($0.endDate ?? .distantPast) >= now },
+            fundedMembers: funded,
+            asPI: awards.count(where: \.isPI))
+    }
+
+    // MARK: Funding cliffs
+
+    /// A member whose funding is running out: their last grant ends within the
+    /// lookahead window and nothing else on their record runs past it.
+    ///
+    /// "Successor" is deliberately loose — any other attached grant that runs
+    /// beyond the ending one counts, whether it's a renewal of the same core
+    /// project or unrelated support, since either keeps the salary line whole.
+    struct FundingCliff: Identifiable {
+        var memberID: UUID
+        var memberName: String
+        var projectNumber: String    // NIH core project number or NSF award ID
+        var title: String
+        var source: String           // "NIH" or "NSF"
+        var endDate: Date
+        var approximate: Bool        // the end date came from fiscal years
+        var remainingGrants: Int     // other awards still running at endDate
+        var totalAtRisk: Int         // award dollars on the ending project
+
+        var id: UUID { memberID }
+
+        /// Whole months from `now` until the grant ends (0 when it ends today).
+        func monthsOut(from now: Date = Date()) -> Int {
+            max(0, Calendar(identifier: .gregorian)
+                .dateComponents([.month], from: now, to: endDate).month ?? 0)
+        }
+    }
+
+    /// How far ahead a funding cliff is called.
+    static let fundingCliffMonths = 12
+
+    /// Members whose last running grant ends within `months` and who have no
+    /// other grant covering the gap. Soonest cliff first.
+    ///
+    /// Only members with attached grants are considered — an unfunded member
+    /// has no cliff to fall off, and flagging them would bury the real signal.
+    static func fundingCliffs(roster: [FacultyMember],
+                              enrichment: [UUID: Enrichment],
+                              asOf now: Date = Date(),
+                              months: Int = fundingCliffMonths) -> [FundingCliff] {
+        let calendar = Calendar(identifier: .gregorian)
+        guard let horizon = calendar.date(byAdding: .month, value: months, to: now) else { return [] }
+
+        /// Every award a member holds, from both funders, reduced to the
+        /// fields the cliff calculation needs.
+        struct Award {
+            var number: String
+            var title: String
+            var source: String
+            var end: Date
+            var approximate: Bool
+            var amount: Int
+        }
+
+        return roster.compactMap { member -> FundingCliff? in
+            var awards: [Award] = []
+            for grant in enrichment[member.id]?.grants?.grants ?? [] {
+                // RePORTER sometimes omits project dates; fall back to the
+                // end of the last fiscal year it reported, and say so.
+                var approximate = false
+                var end = parseGrantDate(grant.endDate)
+                if end == nil, let lastFY = grant.fiscalYears.last {
+                    approximate = true
+                    end = calendar.date(from: DateComponents(year: lastFY, month: 12, day: 31))
+                }
+                guard let end else { continue }
+                awards.append(Award(number: grant.coreProjectNum, title: grant.title,
+                                    source: "NIH", end: end, approximate: approximate,
+                                    amount: grant.totalAward))
+            }
+            for award in enrichment[member.id]?.nsf?.awards ?? [] {
+                guard let end = award.endDate else { continue }
+                awards.append(Award(number: award.awardID, title: award.title,
+                                    source: "NSF", end: end, approximate: false,
+                                    amount: award.totalAward))
+            }
+            guard !awards.isEmpty else { return nil }
+
+            // The furthest-out award is what defines the cliff: if it reaches
+            // past the horizon the member is covered, whatever else ends.
+            guard let last = awards.max(by: { $0.end < $1.end }),
+                  last.end > now, last.end <= horizon else { return nil }
+
+            return FundingCliff(
+                memberID: member.id,
+                memberName: member.name,
+                projectNumber: last.number,
+                title: last.title,
+                source: last.source,
+                endDate: last.end,
+                approximate: last.approximate,
+                remainingGrants: awards.count { $0.end > last.end },
+                totalAtRisk: last.amount)
+        }
+        .sorted { ($0.endDate, $0.memberName) < ($1.endDate, $1.memberName) }
+    }
+
+    static func fundingCliffsCSV(_ cliffs: [FundingCliff]) -> String {
+        var lines = ["Name,Source,Project,Title,Ends,Months Out,Approximate End,Awards Running Past,Amount At Risk"]
+        for cliff in cliffs {
+            lines.append([
+                cliff.memberName,
+                cliff.source,
+                cliff.projectNumber,
+                cliff.title,
+                cliff.endDate.formatted(.iso8601.year().month().day()),
+                String(cliff.monthsOut()),
+                cliff.approximate ? "yes" : "no",
+                String(cliff.remainingGrants),
+                String(cliff.totalAtRisk),
+            ].map(csvEscape).joined(separator: ","))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func fundersCSV(_ funders: [FunderCredit]) -> String {
+        var lines = ["Funder,OpenAlex Funder ID,Works,Faculty,Named Awards"]
+        for funder in funders {
+            lines.append([
+                funder.name,
+                funder.funderID,
+                String(funder.works),
+                String(funder.people),
+                String(funder.awardCount),
+            ].map(csvEscape).joined(separator: ","))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func nsfAwardsCSV(roster: [FacultyMember],
+                             enrichment: [UUID: Enrichment]) -> String {
+        var lines = ["Name,Award ID,Title,Role,Program,Organization,Start,End,Total Award"]
+        let isoDay = { (date: Date?) in
+            date.map { $0.formatted(.iso8601.year().month().day()) } ?? ""
+        }
+        for member in roster.sorted(by: { $0.name < $1.name }) {
+            for award in enrichment[member.id]?.nsf?.awards ?? [] {
+                lines.append([
+                    member.name,
+                    award.awardID,
+                    award.title,
+                    award.isPI ? "PI" : "co-PI",
+                    award.program ?? "",
+                    award.organization ?? "",
+                    isoDay(award.startDate),
+                    isoDay(award.endDate),
+                    String(award.totalAward),
+                ].map(csvEscape).joined(separator: ","))
+            }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
     static func grantsCSV(roster: [FacultyMember],
                           enrichment: [UUID: Enrichment]) -> String {
         var lines = ["Name,Core Project,Activity,Title,Organization,First FY,Latest FY,Total Award"]

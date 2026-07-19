@@ -59,6 +59,47 @@ struct PICandidate: Identifiable, Hashable {
     var id: Int { profileID }
 }
 
+// MARK: - NSF Awards
+
+/// One NSF award. NSF has no core-project grouping like RePORTER's — each
+/// award ID is its own record — so awards map one-to-one onto API rows.
+struct NSFAward: Codable, Hashable, Identifiable {
+    var awardID: String          // e.g. "2548111"
+    var title: String
+    var agency: String           // "NSF"
+    var program: String?
+    var organization: String?
+    var piName: String?
+    var isPI: Bool               // false = matched as a co-PI
+    var startDate: Date?
+    var endDate: Date?
+    var totalAward: Int          // estimated total, falling back to obligated
+
+    var id: String { awardID }
+}
+
+struct NSFData: Codable, Hashable {
+    var awards: [NSFAward]
+    var confirmedPIName: String  // the name string the awards were confirmed against
+    var fetchedAt: Date
+}
+
+// MARK: - Work-level funders (OpenAlex)
+
+/// A funder credited on the cohort's publications, from OpenAlex work grants.
+/// Unlike RePORTER and NSF this needs no name matching — the funder is
+/// recorded on the paper itself — so it covers every agency and foundation at
+/// once, at the cost of knowing only "who funded this paper", not amounts.
+struct FunderCredit: Identifiable, Hashable {
+    var funderID: String         // OpenAlex funder ID, e.g. "F4320306076"
+    var name: String
+    var works: Int               // distinct cohort works crediting this funder
+    var people: Int              // roster members with ≥1 work crediting it
+    var awardCount: Int          // distinct award IDs seen
+
+    var id: String { funderID }
+}
+
 // MARK: - Semantic Scholar
 
 struct S2Data: Codable, Hashable {
@@ -103,6 +144,35 @@ struct ScopusJournalMetrics: Codable, Hashable {
         default: return 4
         }
     }
+}
+
+// MARK: - OpenAlex journal metrics (keyless Scopus fallback)
+
+/// Journal quality from the OpenAlex sources index, keyed by linking ISSN.
+/// Keyless and available to everyone, unlike Scopus CiteScore — so this is
+/// the default tier, upgraded per journal wherever Scopus data exists.
+///
+/// `twoYearMeanCitedness` is OpenAlex's impact-factor analogue (mean citations
+/// in the last two years). It has no published quartile, so quartiles here are
+/// derived within the cohort's own venue set rather than against all journals
+/// in the field — a relative reading, and labeled as such in the UI.
+struct OpenAlexJournalMetrics: Codable, Hashable {
+    var issn: String
+    var sourceID: String         // e.g. "S62468778"
+    var title: String?
+    var twoYearMeanCitedness: Double?
+    var hIndex: Int?
+    var worksCount: Int?
+    var isOA: Bool?
+    var isInDOAJ: Bool?
+}
+
+/// Cohort-wide journal metrics fetched from OpenAlex, stored once for the
+/// whole workspace rather than per member — journals are shared across the
+/// roster, and the lookup is keyed by ISSN either way.
+struct OpenAlexJournalData: Codable, Hashable {
+    var byISSN: [String: OpenAlexJournalMetrics]
+    var fetchedAt: Date
 }
 
 /// One document on the author's Scopus record, for coverage cross-checks.
@@ -179,6 +249,7 @@ struct Enrichment: Codable, Hashable {
     var peerCohort: PeerCohortData?
     var scopus: ScopusData?
     var trials: TrialsData?
+    var nsf: NSFData?
 
     /// Core project numbers the user removed by hand (RePORTER name matching
     /// occasionally attaches someone else's grant). Kept separate from

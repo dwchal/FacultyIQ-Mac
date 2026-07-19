@@ -12,7 +12,7 @@ individual profiles, coauthorship networks, and promotion insights.
 - **Roster import** — CSV with flexible header matching (handles survey-style
   headers like *"What is your current academic rank?"*). Columns: name
   (required), email, rank, division/department, hire/promotion dates, Scopus
-  ID, Google Scholar ID, ORCID, Semantic Scholar ID, associations. A built-in
+  ID, Google Scholar ID, ORCID, Semantic Scholar ID, associations, notes. A built-in
   sample roster is included, and members can also be added or edited one at a
   time.
 - **Identity resolution** — auto-resolve via ORCID or Scopus ID against
@@ -60,6 +60,25 @@ individual profiles, coauthorship networks, and promotion insights.
   Scopus enabled, a *Journal Quality* card shows the cohort's CiteScore
   quartile distribution (% of publications in Q1 venues) and the venue table
   gains sortable CiteScore / SJR / quartile columns.
+- **Journal quality without a key** — journal metrics come from the OpenAlex
+  sources index (2-year mean citedness, h-index per venue) with no API key,
+  so the *Journal Quality* card and the venue table's impact/quartile columns
+  work out of the box. Scopus upgrades individual journals wherever it has a
+  CiteScore, since its quartiles are absolute; the OpenAlex quartiles are
+  relative to the venues the cohort actually publishes in, and are labeled as
+  such. Metrics join on the venue's linking ISSN, so works fetched before
+  ISSNs were tracked need a *Refresh All Works* first — the card says so, with
+  a button, rather than rendering empty.
+- **Preprints** — OpenAlex indexes a bioRxiv/medRxiv/arXiv posting and its
+  eventual journal article as two separate works, which double-counts the
+  paper and puts a phantom point on the publications-per-year chart. Preprints
+  are matched to their published version by normalized title and dropped from
+  the metrics (toggleable in Settings); both stay visible on the Publications
+  tab, where a *Preprints* card reports how many were published, how many are
+  preprint-only, and which have sat unpublished for 2+ years — the follow-up
+  list. Matching is deliberately conservative: a retitled preprint reads as
+  unpublished rather than risking a false pair that would delete a real paper
+  from the counts.
 - **Compare Faculty** — pick 2–4 members for a side-by-side metrics grid
   (works, citations, h-index incl. Scopus, authorship positions, RCR, Q1
   share, NIH funding, trials), best value bolded, with division rank-medians
@@ -71,6 +90,18 @@ individual profiles, coauthorship networks, and promotion insights.
   view charts each PI's grant periods Gantt-style — today line, grants
   expiring within 12 months highlighted, periods approximated from fiscal
   years marked ≈ — with a toggle for recently ended grants.
+- **Funding cliffs** — the actionable half of the funding picture: members
+  whose *last* award ends within 12 months with nothing running past it,
+  soonest first, on the Funding tab and again in What's New (where it shows up
+  even when no publications changed). Any award covering the gap clears the
+  flag, NIH or NSF; already-expired and well-funded members never appear, so
+  the list stays short enough to act on. Exportable as CSV.
+- **Non-NIH funding** — NSF awards (PI and co-PI, keyless, name-matched and
+  verified client-side) get their own rollup and profile card, and feed the
+  cliff calculation alongside NIH. Separately, a *Funders* tab reads the
+  funder credits recorded on the publications themselves — every agency and
+  foundation at once, with no name matching involved, answering "who funds
+  this cohort" for sources neither RePORTER nor NSF covers.
 - **Tracked history** — every fetch records a dated per-author snapshot of
   works, citations, and h-index (in `snapshots.json`, keyed by author so it
   survives roster re-imports). Dashboard and profile charts plot the observed
@@ -101,6 +132,22 @@ individual profiles, coauthorship networks, and promotion insights.
   cross-check diffs the member's Scopus document list against OpenAlex by DOI
   in both directions: works missing from OpenAlex, and OpenAlex-only works
   that are misattribution candidates.
+- **Review notes** — a free-text notes field and a *last reviewed* stamp per
+  member, on the profile and in the member editor. Notes save as you type,
+  are searchable from the faculty lists, ride along in the workspace archive
+  and the roster CSV, and are never sent to any API — the part of a profile
+  that isn't derived from a database.
+- **Scheduled reports** — point Settings → Reports at a folder and FacultyIQ
+  writes a dated Division Summary or Year in Review PDF on a weekly, monthly,
+  or quarterly cadence while the app is open, covering the whole roster
+  regardless of the division filter in the window. Existing files are never
+  overwritten; each run adds a new dated file.
+- **Workspace archive** — one-click export of the entire workspace (roster,
+  resolutions, fetched works, enrichment, notes, and metric history) to a
+  single JSON file, with a confirming import to restore it. For backups,
+  moving to another Mac, or handing the dataset to a colleague. The API
+  response cache is left out — it re-fetches on its own and is the bulk of the
+  size.
 - **Data health** — the Resolution tab flags members missing ORCID or Scopus
   IDs (and anyone unresolved), plus works without a DOI or PMID that
   therefore can't join the DOI/PMID-keyed enrichment sources — with
@@ -125,9 +172,10 @@ individual profiles, coauthorship networks, and promotion insights.
 - **Refresh** — a toolbar button on the analysis tabs resolves newly added
   members and fetches missing data in one click; editing a member's ORCID or
   Scopus ID safely invalidates their stale resolution and data.
-- **Export** — faculty metrics (including Scopus, journal-quality, and
-  clinical-trial columns), yearly time series, resolved roster, NIH grants,
-  and the coauthorship edge list as CSV (respecting the division filter).
+- **Export** — faculty metrics (including Scopus, journal-quality, NSF, and
+  clinical-trial columns), yearly time series, resolved roster (with notes and
+  review dates), NIH grants, NSF awards, funding cliffs, funders, and the
+  coauthorship edge list as CSV (respecting the division filter).
 - **PDF reports** — a per-faculty *Promotion Dossier* (header, metric grid,
   readiness bars, publication chart, paginated most-cited-works table, plus
   Scopus/RCR/funding/trials summary lines), a two-page *Division Summary*
@@ -146,6 +194,14 @@ individual profiles, coauthorship networks, and promotion insights.
     wrongly attached grant can be removed from the profile — the removal is
     remembered, so no refresh or re-attach brings it back (with a Restore
     button to undo).
+  - **NSF Awards** — awards where the member is PI or co-PI (program, project
+    period, total award), keyless. NSF publishes no investigator IDs, so the
+    server-side name query is re-verified client-side against both the PI and
+    co-PI fields; the profile card lists the awards for eyeballing.
+  - **OpenAlex journal metrics** — 2-year mean citedness and h-index for every
+    venue the cohort publishes in, keyless and on by default; fetched once per
+    workspace rather than per member, since journals are shared across the
+    roster.
   - **Semantic Scholar** — influential-citation counts per work (shared
     keyless rate pool, so this source can be slow; a manual Semantic Scholar
     ID field is honored when set).
@@ -228,10 +284,11 @@ for faster rate limits.
 Your roster stays on your Mac. All app state (roster, resolutions, fetched
 data, enrichment) lives in `~/Library/Application Support/FacultyIQ/` —
 outside this repository — and roster emails are never sent to any API. Network
-traffic is limited to OpenAlex lookups by author ID or name plus, when the
-optional enrichment sources are enabled, PMID/DOI/name/ID lookups against NIH
-iCite, NIH RePORTER, Semantic Scholar, ClinicalTrials.gov, and Elsevier's
-Scopus APIs; everything is cached locally for 7 days. The Scopus API key is
+traffic is limited to OpenAlex lookups by author ID, name, or journal ISSN
+plus, when the optional enrichment sources are enabled, PMID/DOI/name/ID
+lookups against NIH iCite, NIH RePORTER, NSF Awards, Semantic Scholar,
+ClinicalTrials.gov, and Elsevier's Scopus APIs; everything is cached locally
+for 7 days. Review notes stay on your Mac and are never sent anywhere. The Scopus API key is
 stored in the app's preferences on your Mac and sent only to api.elsevier.com.
 The `data/` directory in this repo ignores everything except the fictional
 sample roster, so a real roster file placed there cannot be committed by
@@ -240,9 +297,11 @@ accident.
 ## Data sources
 
 [OpenAlex](https://openalex.org) is the primary source: profiles, works,
-citations, counts-by-year, OA status, PMIDs, and venue ISSNs, free without
-keys. Optional enrichment adds [NIH iCite](https://icite.od.nih.gov)
-(RCR / NIH percentile), [NIH RePORTER](https://reporter.nih.gov) (grants),
+citations, counts-by-year, OA status, PMIDs, venue ISSNs, funder credits, and
+journal metrics from its sources index — free without keys. Optional
+enrichment adds [NIH iCite](https://icite.od.nih.gov) (RCR / NIH percentile),
+[NIH RePORTER](https://reporter.nih.gov) (grants),
+[NSF Awards](https://www.nsf.gov/awardsearch/) (grants),
 [Semantic Scholar](https://www.semanticscholar.org) (influential citations),
 and [ClinicalTrials.gov](https://clinicaltrials.gov) (registered trials) —
 all keyless — plus [Scopus](https://dev.elsevier.com) (author metrics and

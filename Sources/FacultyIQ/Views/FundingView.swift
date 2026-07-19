@@ -8,6 +8,7 @@ struct FundingView: View {
     private enum FundingTab: String, CaseIterable {
         case overview = "Overview"
         case timeline = "Timeline"
+        case funders = "Funders"
     }
 
     @EnvironmentObject private var store: AppStore
@@ -19,8 +20,17 @@ struct FundingView: View {
         MetricsEngine.divisionFunding(roster: store.filteredRoster, enrichment: store.enrichment)
     }
 
+    private var funders: [FunderCredit] {
+        MetricsEngine.funderCredits(roster: store.filteredRoster,
+                                    personData: store.effectivePersonData)
+    }
+
+    /// The funders tab stands on its own: work-level funder credits need no
+    /// grant attachment, so it has data even when nobody's NIH grants are on.
+    private var hasAnyFunding: Bool { funding != nil || !funders.isEmpty }
+
     var body: some View {
-        if let funding {
+        if hasAnyFunding {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Picker("View", selection: $tab) {
@@ -28,10 +38,16 @@ struct FundingView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(maxWidth: 260)
+                    .frame(maxWidth: 340)
                     switch tab {
-                    case .overview: overviewSection(funding)
+                    case .overview:
+                        if let funding {
+                            overviewSection(funding)
+                        } else {
+                            noGrantsAttachedNote
+                        }
                     case .timeline: timelineSection
+                    case .funders: fundersSection
                     }
                 }
                 .padding(20)
@@ -41,21 +57,166 @@ struct FundingView: View {
         }
     }
 
+    private var noGrantsAttachedNote: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No grants attached yet")
+                .font(.headline)
+            Text("The Funders tab works from funder credits on the publications themselves and needs no attachment. For award amounts and project periods, enable NIH RePORTER or NSF Awards in Settings → Data Sources and click Enrich Data.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
     @ViewBuilder
     private func overviewSection(_ funding: MetricsEngine.DivisionFunding) -> some View {
         if funding.missingFYBreakdown {
             breakdownBanner
         }
         kpiRow(funding)
+        cliffCard
         HStack(alignment: .top, spacing: 20) {
             fiscalYearCard(funding)
             activityCard(funding)
         }
         topFundedCard(funding)
+        nsfCard
         trialsCard
         Text("Multi-PI projects shared by two roster members count once in the totals and charts. Amounts are summed NIH award dollars across the fiscal years RePORTER reports.")
             .font(.caption)
             .foregroundStyle(.secondary)
+    }
+
+    // MARK: Funding cliffs
+
+    /// Members whose funding runs out within a year with nothing behind it —
+    /// the one thing on this tab that's actionable rather than retrospective,
+    /// so it sits directly under the KPIs. Silence means nobody's exposed.
+    @ViewBuilder
+    private var cliffCard: some View {
+        let cliffs = MetricsEngine.fundingCliffs(roster: store.filteredRoster,
+                                                 enrichment: store.enrichment)
+        if !cliffs.isEmpty {
+            let atRisk = cliffs.map(\.totalAtRisk).reduce(0, +)
+            card("Funding Cliffs",
+                 subtitle: "\(cliffs.count) \(cliffs.count == 1 ? "member's" : "members'") last award ends within \(MetricsEngine.fundingCliffMonths) months with nothing running past it · \(compactCurrency(atRisk)) on the ending projects") {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(cliffs) { cliff in
+                        cliffRow(cliff)
+                    }
+                    Text("Covers the awards attached in FacultyIQ only — pending applications, internal support, and awards the name match missed aren't visible here.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private func cliffRow(_ cliff: MetricsEngine.FundingCliff) -> some View {
+        let months = cliff.monthsOut()
+        return HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: months <= 3 ? "exclamationmark.triangle.fill" : "clock.badge.exclamationmark")
+                .foregroundStyle(months <= 3 ? ChartPalette.critical : ChartPalette.series3)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(cliff.memberName).font(.callout.weight(.medium))
+                Text("\(cliff.source) \(cliff.projectNumber) · \(cliff.title)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(months == 0 ? "ends this month" : "\(months) mo")
+                    .font(.callout.weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(months <= 3 ? ChartPalette.critical : .primary)
+                Text((cliff.approximate ? "≈ " : "")
+                     + cliff.endDate.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: NSF
+
+    /// NSF awards, once the NSF source has run — kept separate from the NIH
+    /// rollup above rather than summed into it, since the two APIs report
+    /// award amounts on different bases.
+    @ViewBuilder
+    private var nsfCard: some View {
+        if let nsf = MetricsEngine.nsfSummary(roster: store.filteredRoster,
+                                              enrichment: store.enrichment) {
+            card("NSF Awards",
+                 subtitle: "Matched by investigator name · awards shared within the roster count once") {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 5),
+                          spacing: 12) {
+                    kpi("Total Awarded", compactCurrency(nsf.totalAwarded))
+                    kpi("Awards", "\(nsf.awardCount)")
+                    kpi("Active", "\(nsf.activeCount)")
+                    kpi("As PI", "\(nsf.asPI)")
+                    kpi("Funded Faculty", "\(nsf.fundedMembers)")
+                }
+            }
+        }
+    }
+
+    // MARK: Funders
+
+    @ViewBuilder
+    private var fundersSection: some View {
+        let funders = funders
+        if MetricsEngine.funderDataMissing(roster: store.filteredRoster,
+                                           personData: store.effectivePersonData) {
+            HStack {
+                Label("Works were fetched before funder credits were tracked. Refresh all works to populate this tab.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                Spacer()
+                Button("Refresh All Works") {
+                    Task { await store.fetchAll(refresh: true) }
+                }
+                .disabled(store.isBusy)
+            }
+            .padding(12)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        } else if funders.isEmpty {
+            Text("No funder credits on the cohort's publications.")
+                .foregroundStyle(.secondary)
+                .padding(16)
+        } else {
+            let top = Array(funders.prefix(15))
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                kpi("Funders", "\(funders.count)")
+                kpi("Credited Works", "\(funders.map(\.works).reduce(0, +))")
+                kpi("Named Awards", "\(funders.map(\.awardCount).reduce(0, +))")
+            }
+            card("Who Funds This Cohort",
+                 subtitle: "Funders credited on the publications themselves — every agency and foundation, not just NIH and NSF · top \(top.count)") {
+                Chart(top) { funder in
+                    BarMark(
+                        x: .value("Works", funder.works),
+                        y: .value("Funder", funder.name),
+                        height: .ratio(0.7)
+                    )
+                    .foregroundStyle(ChartPalette.series1)
+                    .cornerRadius(2)
+                    .annotation(position: .trailing, spacing: 4) {
+                        Text("\(funder.works) · \(funder.people) faculty")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .chartXAxis(.hidden)
+                .chartYScale(domain: top.map(\.name))
+                .frame(height: CGFloat(top.count) * 28)
+            }
+            Text("Counts are distinct publications crediting each funder, so a paper with three funders is counted by all three. Amounts aren't available at work level — see the Overview tab for award dollars.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// Division rollup of registered trials, once ClinicalTrials.gov
@@ -109,9 +270,9 @@ struct FundingView: View {
             Label("No Grant Data", systemImage: "dollarsign.circle")
         } description: {
             if reporterEnabled {
-                Text("Click Enrich Data in the toolbar to attach NIH grants, or confirm investigators via Find Grants on their profiles.")
+                Text("Click Enrich Data in the toolbar to attach NIH grants, or confirm investigators via Find Grants on their profiles. Refreshing works also fills the Funders tab from funder credits on the publications.")
             } else {
-                Text("Enable NIH RePORTER grants in Settings → Data Enrichment, then click Enrich Data in the toolbar.")
+                Text("Enable NIH RePORTER grants or NSF Awards in Settings → Data Sources, then click Enrich Data in the toolbar.")
             }
         } actions: {
             if reporterEnabled {

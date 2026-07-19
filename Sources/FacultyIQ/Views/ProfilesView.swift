@@ -134,6 +134,19 @@ private struct ProfileDetail: View {
     @State private var showGrantsSheet = false
     @State private var showAuditSheet = false
     @State private var showScopusSheet = false
+    /// Draft copy of the notes field, plus the member it belongs to. Saving
+    /// rewrites the whole state file, so edits are debounced rather than
+    /// written per keystroke — but they are never left only in the draft:
+    /// blur, switching member, and leaving the view all flush it.
+    ///
+    /// `draftOwner` is what the flush writes against, never `member.id`:
+    /// when the selection changes, `member` is already the new person by the
+    /// time the change fires, and committing against it would copy one
+    /// member's notes onto another.
+    @State private var noteDraft = ""
+    @State private var draftOwner: UUID?
+    @State private var pendingCommit: Task<Void, Never>?
+    @FocusState private var notesFocused: Bool
     @AppStorage("enableReporter") private var reporterEnabled = false
     @AppStorage("enableScopus") private var scopusEnabled = false
     @AppStorage("enableTrials") private var trialsEnabled = false
@@ -143,10 +156,12 @@ private struct ProfileDetail: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 metricGrid
+                notesCard
                 dataQualityCard
                 peerBenchmarkCard
                 promotionCard
                 fundingCard
+                nsfCard
                 scopusCard
                 trialsCard
                 trendChart
@@ -166,6 +181,156 @@ private struct ProfileDetail: View {
         .sheet(isPresented: $showScopusSheet) {
             ScopusConfirmSheet(member: member)
         }
+    }
+
+    // MARK: Review notes
+
+    /// Free-text notes and a review stamp — the part of a profile that isn't
+    /// derived from any API. Notes are searchable from the member list.
+    private var notesCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Review Notes").font(.headline)
+                    Text(reviewedLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if member.lastReviewed != nil {
+                    Button("Clear") { store.setReviewed(nil, for: member.id) }
+                        .controlSize(.small)
+                }
+                Button(member.lastReviewed == nil ? "Mark Reviewed" : "Reviewed Today") {
+                    store.setReviewed(Date(), for: member.id)
+                }
+                .controlSize(.small)
+            }
+            TextEditor(text: $noteDraft)
+                .font(.callout)
+                .frame(minHeight: 64, maxHeight: 140)
+                .padding(6)
+                .background(.background.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+                .focused($notesFocused)
+                .onChange(of: noteDraft) { _, _ in scheduleCommit() }
+                .onChange(of: notesFocused) { _, focused in
+                    if !focused { flushNotes() }
+                }
+            Text("Saved as you type, kept on this Mac, and included in the workspace archive — never sent to any API. Searchable from the list on the left.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .onAppear(perform: loadDraft)
+        .onChange(of: member.id) { _, _ in
+            // The selection already moved on, so flush against the member the
+            // draft belongs to before adopting the new one's notes.
+            flushNotes()
+            loadDraft()
+        }
+        .onDisappear(perform: flushNotes)
+    }
+
+    private func loadDraft() {
+        noteDraft = member.notes ?? ""
+        draftOwner = member.id
+    }
+
+    /// Write the draft a moment after typing stops. Saving serializes the
+    /// entire workspace, so per-keystroke writes would be far too costly.
+    private func scheduleCommit() {
+        pendingCommit?.cancel()
+        let owner = draftOwner
+        let text = noteDraft
+        pendingCommit = Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            commit(text, for: owner)
+        }
+    }
+
+    /// Write any outstanding edit immediately — on blur, on member change, and
+    /// on leaving the profile, so a pending debounce is never lost.
+    private func flushNotes() {
+        pendingCommit?.cancel()
+        pendingCommit = nil
+        commit(noteDraft, for: draftOwner)
+    }
+
+    private func commit(_ text: String, for owner: UUID?) {
+        guard let owner,
+              let current = store.roster.first(where: { $0.id == owner }),
+              text != (current.notes ?? "") else { return }
+        store.setNotes(text, for: owner)
+    }
+
+    private var reviewedLabel: String {
+        guard let reviewed = member.lastReviewed else {
+            return "Not marked reviewed yet"
+        }
+        let days = Calendar.current.dateComponents([.day], from: reviewed, to: Date()).day ?? 0
+        let ago = switch days {
+        case 0: "today"
+        case 1: "yesterday"
+        default: "\(days) days ago"
+        }
+        return "Last reviewed \(reviewed.formatted(date: .abbreviated, time: .omitted)) · \(ago)"
+    }
+
+    // MARK: NSF awards
+
+    @ViewBuilder
+    private var nsfCard: some View {
+        if let nsf = enrichment?.nsf, !nsf.awards.isEmpty {
+            let total = nsf.awards.map(\.totalAward).reduce(0, +)
+            let active = nsf.awards.count { ($0.endDate ?? .distantPast) >= Date() }
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("NSF Awards").font(.headline)
+                    Text("\(nsf.awards.count) awards · \(currency(total)) · \(active) active · matched by name, so check the list")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 5) {
+                    ForEach(nsf.awards.prefix(8)) { award in
+                        GridRow {
+                            Link(award.awardID, destination:
+                                    URL(string: "https://www.nsf.gov/awardsearch/showAward?AWD_ID=\(award.awardID)")!)
+                                .font(.caption.monospaced())
+                            Text(award.title)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(award.isPI ? "PI" : "co-PI")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(awardSpan(award))
+                                .foregroundStyle(.secondary)
+                            Text(currency(award.totalAward))
+                                .monospacedDigit()
+                                .gridColumnAlignment(.trailing)
+                        }
+                        .font(.callout)
+                    }
+                }
+                if nsf.awards.count > 8 {
+                    Text("+ \(nsf.awards.count - 8) more")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func awardSpan(_ award: NSFAward) -> String {
+        let year = { (date: Date?) in
+            date.map { String(Calendar.current.component(.year, from: $0)) } ?? "—"
+        }
+        return "\(year(award.startDate))–\(year(award.endDate))"
     }
 
     // MARK: Scopus

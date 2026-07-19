@@ -97,20 +97,22 @@ extension MetricsEngine {
         var people: Int          // members with at least one work in the venue
         var issn: String? = nil  // most common linking ISSN among the venue's works
         var scopus: ScopusJournalMetrics? = nil
+        var rating: JournalRating? = nil   // unified Scopus-or-OpenAlex quality
 
         var id: String { name }
 
         // Non-optional sort keys so the Table columns stay sortable.
-        var citeScoreSort: Double { scopus?.citeScore ?? -1 }
-        var sjrSort: Double { scopus?.sjr ?? -1 }
-        var quartileSort: Int { scopus?.quartile ?? 9 }
+        var citeScoreSort: Double { rating?.impact ?? scopus?.citeScore ?? -1 }
+        var sjrSort: Double { rating?.sjr ?? scopus?.sjr ?? -1 }
+        var quartileSort: Int { rating?.quartile ?? scopus?.quartile ?? 9 }
     }
 
-    /// Distinct works and citations per venue across the cohort, with Scopus
-    /// journal metrics joined by ISSN when available. Works without a venue
-    /// are skipped.
+    /// Distinct works and citations per venue across the cohort, with journal
+    /// metrics joined by ISSN when available. Works without a venue are
+    /// skipped.
     static func venueCounts(personData: [PersonData],
-                            journals: [String: ScopusJournalMetrics] = [:]) -> [VenueCount] {
+                            journals: [String: ScopusJournalMetrics] = [:],
+                            ratings: [String: JournalRating] = [:]) -> [VenueCount] {
         var seenByVenue: [String: Set<String>] = [:]
         var citationsByVenue: [String: Int] = [:]
         var peopleByVenue: [String: Int] = [:]
@@ -138,9 +140,100 @@ extension MetricsEngine {
                                   citations: citationsByVenue[venue] ?? 0,
                                   people: peopleByVenue[venue] ?? 0,
                                   issn: issn,
-                                  scopus: issn.flatMap { journals[$0] })
+                                  scopus: issn.flatMap { journals[$0] },
+                                  rating: issn.flatMap { ratings[$0] })
             }
             .sorted { ($0.works, $0.citations, $1.name) > ($1.works, $1.citations, $0.name) }
+    }
+
+    // MARK: Unified journal ratings
+
+    /// Where a venue's quality numbers came from. Scopus CiteScore quartiles
+    /// are absolute (against every journal in the subject area); OpenAlex
+    /// quartiles are relative to the venues this cohort actually publishes in,
+    /// because OpenAlex publishes no quartile of its own.
+    enum JournalRatingSource: String {
+        case scopus = "Scopus"
+        case openalex = "OpenAlex"
+
+        var quartileCaption: String {
+            switch self {
+            case .scopus: "CiteScore quartile within the journal's subject area"
+            case .openalex: "quartile among the venues this cohort publishes in"
+            }
+        }
+    }
+
+    /// One venue's quality numbers, from whichever source has them.
+    struct JournalRating: Hashable {
+        var issn: String
+        var title: String?
+        var source: JournalRatingSource
+        /// CiteScore (Scopus) or 2-year mean citedness (OpenAlex) — both are
+        /// "mean citations per recent paper", so they share a column.
+        var impact: Double?
+        var quartile: Int?
+        var sjr: Double?         // Scopus only
+        var hIndex: Int?         // OpenAlex only
+    }
+
+    /// Merge Scopus and OpenAlex journal metrics into one ISSN lookup. Scopus
+    /// wins per journal wherever it has a CiteScore, since its quartiles are
+    /// absolute; OpenAlex fills every remaining venue so the column is never
+    /// empty for users without an Elsevier key.
+    static func journalRatings(scopus: [String: ScopusJournalMetrics],
+                               openalex: [String: OpenAlexJournalMetrics]) -> [String: JournalRating] {
+        var ratings: [String: JournalRating] = [:]
+
+        // OpenAlex quartiles are cohort-relative: rank the venues we have
+        // citedness for, then split at the 75th/50th/25th percentiles.
+        let citedness = openalex.values.compactMap(\.twoYearMeanCitedness).sorted()
+        func openalexQuartile(_ value: Double?) -> Int? {
+            guard let value, citedness.count >= 4 else { return nil }
+            switch value {
+            case citedness.percentile(0.75)...: return 1
+            case citedness.percentile(0.50)...: return 2
+            case citedness.percentile(0.25)...: return 3
+            default: return 4
+            }
+        }
+        for (issn, metrics) in openalex {
+            ratings[issn] = JournalRating(
+                issn: issn,
+                title: metrics.title,
+                source: .openalex,
+                impact: metrics.twoYearMeanCitedness,
+                quartile: openalexQuartile(metrics.twoYearMeanCitedness),
+                sjr: nil,
+                hIndex: metrics.hIndex)
+        }
+        for (issn, metrics) in scopus where metrics.citeScore != nil {
+            ratings[issn] = JournalRating(
+                issn: issn,
+                title: metrics.title,
+                source: .scopus,
+                impact: metrics.citeScore,
+                quartile: metrics.quartile,
+                sjr: metrics.sjr,
+                hIndex: ratings[issn]?.hIndex)
+        }
+        return ratings
+    }
+
+    /// Quartile distribution over the unified ratings, Q1…Q4.
+    static func quartileDistribution(personData: [PersonData],
+                                     ratings: [String: JournalRating]) -> [Int: Int] {
+        var seen = Set<String>()
+        var counts: [Int: Int] = [:]
+        for data in personData {
+            for work in data.works {
+                guard seen.insert(work.id).inserted,
+                      let issn = work.venueISSN,
+                      let quartile = ratings[issn]?.quartile else { continue }
+                counts[quartile, default: 0] += 1
+            }
+        }
+        return counts
     }
 
     /// Quartile distribution of the cohort's rated publications (distinct

@@ -115,11 +115,38 @@ actor OpenAlexClient {
         return list.results.map { $0.candidate }
     }
 
+    /// Journal metrics for a batch of linking ISSNs, from the OpenAlex sources
+    /// index — the keyless stand-in for Scopus CiteScore. OpenAlex allows 50
+    /// OR-ed filter values per request, so ISSNs go out in chunks of 50.
+    func sources(issns: [String]) async throws -> [OpenAlexJournalMetrics] {
+        var found: [String: OpenAlexJournalMetrics] = [:]
+        let select = "id,display_name,issn_l,works_count,cited_by_count,is_oa,is_in_doaj,summary_stats"
+        for start in stride(from: 0, to: issns.count, by: 50) {
+            let chunk = issns[start..<min(start + 50, issns.count)]
+            let url = endpoint("sources", query: [
+                URLQueryItem(name: "filter", value: "issn:" + chunk.joined(separator: "|")),
+                URLQueryItem(name: "select", value: select),
+                URLQueryItem(name: "per-page", value: String(chunk.count)),
+            ])
+            guard let list: OAList<OASource> = try? await fetch(url) else { continue }
+            for source in list.results {
+                // A source can carry several ISSNs; key it by the linking ISSN
+                // it reports, and by whichever requested ISSN pulled it in.
+                let metrics = source.metrics
+                if let issnL = source.issnL { found[issnL] = metrics }
+                for issn in chunk where found[issn] == nil && source.matches(issn) {
+                    found[issn] = metrics
+                }
+            }
+        }
+        return issns.compactMap { found[$0] }
+    }
+
     /// All works for an author, cursor-paginated, most-cited first.
     func works(authorID: String, limit: Int = 2000, bypassCache: Bool = false) async throws -> [Work] {
         var works: [Work] = []
         var cursor: String? = "*"
-        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships,primary_topic,is_retracted,counts_by_year"
+        let select = "id,display_name,publication_year,publication_date,type,cited_by_count,doi,ids,open_access,primary_location,authorships,primary_topic,is_retracted,counts_by_year,awards,funders"
 
         while let c = cursor, works.count < limit {
             let url = endpoint("works", query: [
@@ -256,6 +283,48 @@ private struct OATopic: Decodable {
     var displayName: String
 }
 
+private struct OASource: Decodable {
+    struct SummaryStats: Decodable {
+        var twoYrMeanCitedness: Double?
+        var hIndex: Int?
+        var i10Index: Int?
+
+        // OpenAlex spells this "2yr_mean_citedness"; convertFromSnakeCase
+        // turns a leading digit into "2yrMeanCitedness", which isn't a legal
+        // Swift identifier, so the key is mapped by hand.
+        enum CodingKeys: String, CodingKey {
+            case twoYrMeanCitedness = "2yrMeanCitedness"
+            case hIndex, i10Index
+        }
+    }
+
+    var id: String
+    var displayName: String?
+    var issnL: String?
+    var issn: [String]?
+    var worksCount: Int?
+    var citedByCount: Int?
+    var isOa: Bool?
+    var isInDoaj: Bool?
+    var summaryStats: SummaryStats?
+
+    func matches(_ issn: String) -> Bool {
+        issnL == issn || (self.issn ?? []).contains(issn)
+    }
+
+    var metrics: OpenAlexJournalMetrics {
+        OpenAlexJournalMetrics(
+            issn: issnL ?? issn?.first ?? id.shortOpenAlexID,
+            sourceID: id.shortOpenAlexID,
+            title: displayName,
+            twoYearMeanCitedness: summaryStats?.twoYrMeanCitedness,
+            hIndex: summaryStats?.hIndex,
+            worksCount: worksCount,
+            isOA: isOa,
+            isInDOAJ: isInDoaj)
+    }
+}
+
 private struct OAWork: Decodable {
     struct OpenAccess: Decodable {
         var isOa: Bool?
@@ -291,6 +360,18 @@ private struct OAWork: Decodable {
         var year: Int
         var citedByCount: Int?
     }
+    /// The richer per-award record: names the funder and its award number.
+    struct Award: Decodable {
+        var funderId: String?
+        var funderDisplayName: String?
+        var funderAwardId: String?
+    }
+    /// The plainer funder credit, present on works that name a funder but no
+    /// specific award.
+    struct Funder: Decodable {
+        var id: String?
+        var displayName: String?
+    }
 
     var id: String
     var displayName: String?
@@ -306,6 +387,35 @@ private struct OAWork: Decodable {
     var primaryTopic: PrimaryTopic?
     var isRetracted: Bool?
     var countsByYear: [CountsByYear]?
+    var awards: [Award]?
+    var funders: [Funder]?
+
+    /// Funder credits, preferring the `awards` entries (which carry award
+    /// numbers) and filling in from `funders` for funders they don't mention.
+    /// nil only when OpenAlex returned neither field, so "no funders recorded"
+    /// stays distinguishable from "fetched before funders were tracked".
+    var funderCredits: [WorkGrant]? {
+        guard awards != nil || funders != nil else { return nil }
+        var credits: [WorkGrant] = []
+        var seen = Set<String>()
+        for award in awards ?? [] {
+            guard let funderID = award.funderId?.shortOpenAlexID else { continue }
+            credits.append(WorkGrant(
+                funderID: funderID,
+                funderName: award.funderDisplayName ?? funderID,
+                awardID: award.funderAwardId))
+            seen.insert(funderID)
+        }
+        for funder in funders ?? [] {
+            guard let funderID = funder.id?.shortOpenAlexID,
+                  seen.insert(funderID).inserted else { continue }
+            credits.append(WorkGrant(
+                funderID: funderID,
+                funderName: funder.displayName ?? funderID,
+                awardID: nil))
+        }
+        return credits
+    }
 
     var work: Work {
         Work(
@@ -336,7 +446,8 @@ private struct OAWork: Decodable {
             isRetracted: isRetracted,
             citationsByYear: countsByYear.map { list in
                 list.map { WorkYearCites(year: $0.year, citedByCount: $0.citedByCount ?? 0) }
-            }
+            },
+            grants: funderCredits
         )
     }
 }

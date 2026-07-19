@@ -31,6 +31,7 @@ struct MemberEditorSheet: View {
     @State private var scholarID = ""
     @State private var semanticScholarID = ""
     @State private var associations = ""
+    @State private var notes = ""
 
     private var isNew: Bool { member == nil }
 
@@ -85,6 +86,11 @@ struct MemberEditorSheet: View {
                 Section("Notes") {
                     TextField("Associations & roles", text: $associations, axis: .vertical)
                         .lineLimit(2...4)
+                    TextField("Review notes", text: $notes, axis: .vertical)
+                        .lineLimit(2...5)
+                    Text("Review notes are searchable from the faculty lists and travel with the workspace archive. Neither field is sent to any API.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
@@ -130,6 +136,7 @@ struct MemberEditorSheet: View {
         scholarID = member.scholarID ?? ""
         semanticScholarID = member.semanticScholarID ?? ""
         associations = member.associations ?? ""
+        notes = member.notes ?? ""
     }
 
     private func save() {
@@ -149,6 +156,7 @@ struct MemberEditorSheet: View {
         result.scholarID = scholarID.trimmingCharacters(in: .whitespaces).nilIfEmpty
         result.semanticScholarID = semanticScholarID.trimmingCharacters(in: .whitespaces).nilIfEmpty
         result.associations = associations.trimmingCharacters(in: .whitespaces).nilIfEmpty
+        result.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
 
         if isNew {
             store.addMember(result)

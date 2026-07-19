@@ -38,7 +38,7 @@ struct WhatsNewView: View {
                     .frame(maxWidth: 340)
                     .padding(.top, 10)
                     switch mode {
-                    case .latest: changed.isEmpty ? AnyView(upToDate) : AnyView(changeList)
+                    case .latest: AnyView(latestSection)
                     case .between: AnyView(SnapshotDiffView())
                     }
                 }
@@ -65,6 +65,75 @@ struct WhatsNewView: View {
         }
     }
 
+    /// Publication changes plus the funding cliffs, which belong here even
+    /// when nothing published: a grant running out is the other thing worth
+    /// knowing since the last review, and it surfaces with no fetch at all.
+    @ViewBuilder
+    private var latestSection: some View {
+        let cliffs = MetricsEngine.fundingCliffs(roster: store.filteredRoster,
+                                                 enrichment: store.enrichment)
+        if changed.isEmpty && cliffs.isEmpty {
+            upToDate
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if !changed.isEmpty {
+                        summaryHeader
+                    }
+                    if !cliffs.isEmpty {
+                        cliffCard(cliffs)
+                    }
+                    ForEach(changed, id: \.member.id) { entry in
+                        memberCard(entry.member, entry.delta)
+                    }
+                    if changed.isEmpty {
+                        Text("No publication or citation changes since the last check.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(20)
+            }
+        }
+    }
+
+    private func cliffCard(_ cliffs: [MetricsEngine.FundingCliff]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(ChartPalette.series3)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Funding ending soon").font(.headline)
+                    Text("\(cliffs.count) \(cliffs.count == 1 ? "member has" : "members have") no award running past their last one — see Funding for the full picture")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Divider()
+            ForEach(cliffs.prefix(6)) { cliff in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(cliff.memberName)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("\(cliff.source) \(cliff.projectNumber)")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Text(cliff.monthsOut() == 0 ? "this month" : "\(cliff.monthsOut()) mo")
+                        .monospacedDigit()
+                        .foregroundStyle(cliff.monthsOut() <= 3 ? ChartPalette.critical : .primary)
+                }
+                .font(.callout)
+            }
+            if cliffs.count > 6 {
+                Text("+ \(cliffs.count - 6) more")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
     private var upToDate: some View {
         ContentUnavailableView {
             Label("You're Up to Date", systemImage: "checkmark.circle")
@@ -80,18 +149,6 @@ struct WhatsNewView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(store.isBusy)
-        }
-    }
-
-    private var changeList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                summaryHeader
-                ForEach(changed, id: \.member.id) { entry in
-                    memberCard(entry.member, entry.delta)
-                }
-            }
-            .padding(20)
         }
     }
 

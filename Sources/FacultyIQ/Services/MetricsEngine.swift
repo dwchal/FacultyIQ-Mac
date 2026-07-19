@@ -435,7 +435,7 @@ enum MetricsEngine {
                            personData: [UUID: PersonData] = [:],
                            enrichment: [UUID: Enrichment] = [:]) -> String {
         let byID = Dictionary(uniqueKeysWithValues: roster.map { ($0.id, $0) })
-        var lines = ["Name,Rank,Division,Status,Works,Citations,h-index,i10-index,Independent h-index,First Author Works,Senior Author Works,Senior Share 5y %,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,Scopus h-index,Scopus Documents,Scopus Citations,Q1 Journal %,Median CiteScore,Clinical Trials,Trials as PI,ORCID,Scopus ID"]
+        var lines = ["Name,Rank,Division,Status,Works,Citations,h-index,i10-index,Independent h-index,First Author Works,Senior Author Works,Senior Share 5y %,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,NSF Awards,Total NSF Funding,Scopus h-index,Scopus Documents,Scopus Citations,Q1 Journal %,Median CiteScore,Clinical Trials,Trials as PI,Last Reviewed,ORCID,Scopus ID"]
         for m in metrics.sorted(by: { $0.name < $1.name }) {
             let member = byID[m.memberID]
             let rcr: Double? = personData[m.memberID].flatMap {
@@ -468,6 +468,11 @@ enum MetricsEngine {
                 grants.map { String($0.count) } ?? "",
                 totalFunding.map(String.init) ?? "",
             ]
+            let nsfAwards: [NSFAward]? = enrichment[m.memberID]?.nsf?.awards
+            fields += [
+                nsfAwards.map { String($0.count) } ?? "",
+                nsfAwards.map { String($0.map(\.totalAward).reduce(0, +)) } ?? "",
+            ]
             let scopus = enrichment[m.memberID]?.scopus
             let quality: JournalQuality? = personData[m.memberID].flatMap { data in
                 scopus.map { journalQuality(works: data.works, journals: $0.journalByISSN) }
@@ -481,6 +486,7 @@ enum MetricsEngine {
                 quality?.medianCiteScore.map { String(format: "%.1f", $0) } ?? "",
                 trials.map { String($0.count) } ?? "",
                 trials.map { String(trialsSummary($0).asPI) } ?? "",
+                member?.lastReviewed.map { $0.formatted(.iso8601.year().month().day()) } ?? "",
                 member?.orcid ?? "",
                 member?.scopusID ?? "",
             ]

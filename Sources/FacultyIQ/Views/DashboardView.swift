@@ -142,7 +142,11 @@ struct DashboardView: View {
                          subtitle: "New citations to the cohort's works, dated by the citing paper's year (last decade)",
                          trend: trend, growth: trend.citationsGrowth) {
             VStack(alignment: .leading, spacing: 4) {
-                CitationsPerYearChart(data: MetricsEngine.citationsPerYear(personData: fetched))
+                // Prorating only makes sense on true received-per-year data;
+                // the stale fallback approximates by publication year.
+                CitationsPerYearChart(
+                    data: MetricsEngine.citationsPerYear(personData: fetched),
+                    prorate: !MetricsEngine.staleCitationData(personData: fetched))
                 if MetricsEngine.staleCitationData(personData: fetched) {
                     HStack(spacing: 8) {
                         Label("Cached works predate per-work citation tracking, so this chart can only approximate by publication year (like the chart below).",

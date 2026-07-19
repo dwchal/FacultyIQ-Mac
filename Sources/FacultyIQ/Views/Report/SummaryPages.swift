@@ -58,7 +58,9 @@ enum SummaryPages {
                 }
                 chartSection("Citations Received per Year",
                              subtitle: "Last decade (OpenAlex counts)") {
-                    CitationsPerYearChart(data: MetricsEngine.citationsPerYear(personData: personData))
+                    CitationsPerYearChart(
+                        data: MetricsEngine.citationsPerYear(personData: personData),
+                        prorate: !MetricsEngine.staleCitationData(personData: personData))
                 }
             }
         }

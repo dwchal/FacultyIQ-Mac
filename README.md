@@ -22,13 +22,18 @@ individual profiles, coauthorship networks, and promotion insights.
   works/year, open-access share, recent 5-year output. Computed from OpenAlex
   data; h/i10 fall back to local computation from works when needed.
 - **Dashboard** — KPI tiles plus charts: publications per year, citations
-  received per year, OA share by year, most-cited faculty. Once the app has
-  recorded snapshots on two different days, *Tracked History* charts show the
-  cohort's observed works/citations movement across your own fetches.
+  received per year (the always-partial current year is shown to date with a
+  prorated full-year pace marker instead of a misleading dip), OA share by
+  year, most-cited faculty. Once the app has recorded snapshots on two
+  different days, *Tracked History* charts show the cohort's observed
+  works/citations movement across your own fetches.
 - **What's New** — *Check for Updates* re-fetches everyone straight from
   OpenAlex (skipping the 7-day response cache) and reports what changed per
   member: new publications with links, citation and h-index movement. Changes
-  accumulate across checks until you click *Mark Reviewed*.
+  accumulate across checks until you click *Mark Reviewed*. A *Between Dates*
+  mode diffs the tracked history between any two dates — per-member works,
+  citation, and h-index deltas over an annual-review period — with a one-page
+  *Year in Review* PDF.
 - **Faculty profiles** — per-person metric grid, promotion readiness card,
   publication trend, most-cited works with DOI links, links to OpenAlex/ORCID
   profiles. A works sparkline and growth arrow next to each name in the list.
@@ -51,7 +56,14 @@ individual profiles, coauthorship networks, and promotion insights.
   OpenAlex metadata: publication-type breakdown (articles, reviews, book
   chapters, …) with decade trend lines, per-year open-access status
   composition (gold / hybrid / green / bronze / closed), a sortable venue ×
-  works × citations × faculty table, and each profile's top work types.
+  works × citations × faculty table, and each profile's top work types. With
+  Scopus enabled, a *Journal Quality* card shows the cohort's CiteScore
+  quartile distribution (% of publications in Q1 venues) and the venue table
+  gains sortable CiteScore / SJR / quartile columns.
+- **Compare Faculty** — pick 2–4 members for a side-by-side metrics grid
+  (works, citations, h-index incl. Scopus, authorship positions, RCR, Q1
+  share, NIH funding, trials), best value bolded, with division rank-medians
+  for context — exportable as a one-page PDF for committee meetings.
 - **Funding dashboard** — division-level rollup of the attached NIH grants:
   total awarded, funded faculty, active and R01-equivalent projects, awards by
   fiscal year and by activity code, and the most-funded faculty. Multi-PI
@@ -85,7 +97,14 @@ individual profiles, coauthorship networks, and promotion insights.
   every profile has an Audit Works sheet where misattributed papers can be
   marked "not theirs" (persisted, survives refreshes) and drop out of every
   metric, chart, benchmark, and export. Works in fields the member has barely
-  touched are flagged as review candidates.
+  touched are flagged as review candidates. With Scopus enabled, a
+  cross-check diffs the member's Scopus document list against OpenAlex by DOI
+  in both directions: works missing from OpenAlex, and OpenAlex-only works
+  that are misattribution candidates.
+- **Data health** — the Resolution tab flags members missing ORCID or Scopus
+  IDs (and anyone unresolved), plus works without a DOI or PMID that
+  therefore can't join the DOI/PMID-keyed enrichment sources — with
+  per-member shortcuts to fix each gap.
 - **Retraction flags** — works OpenAlex marks retracted are badged in
   profiles, listed on the Publications tab, and called out in the promotion
   dossier PDF before it goes anywhere.
@@ -106,15 +125,17 @@ individual profiles, coauthorship networks, and promotion insights.
 - **Refresh** — a toolbar button on the analysis tabs resolves newly added
   members and fetches missing data in one click; editing a member's ORCID or
   Scopus ID safely invalidates their stale resolution and data.
-- **Export** — faculty metrics, yearly time series, resolved roster, NIH
-  grants, and the coauthorship edge list as CSV (respecting the division
-  filter).
+- **Export** — faculty metrics (including Scopus, journal-quality, and
+  clinical-trial columns), yearly time series, resolved roster, NIH grants,
+  and the coauthorship edge list as CSV (respecting the division filter).
 - **PDF reports** — a per-faculty *Promotion Dossier* (header, metric grid,
-  readiness bars, publication chart, paginated most-cited-works table) and a
-  two-page *Division Summary* (KPIs, all four dashboard charts, rank
-  benchmarks), rendered as vector PDFs with selectable text.
-- **Data enrichment (optional)** — free, keyless sources toggled in Settings
-  and fetched with the *Enrich Data* toolbar button:
+  readiness bars, publication chart, paginated most-cited-works table, plus
+  Scopus/RCR/funding/trials summary lines), a two-page *Division Summary*
+  (KPIs, all four dashboard charts, rank benchmarks, Scopus rollup), the
+  *Faculty Comparison* sheet, and the *Year in Review* diff — rendered as
+  vector PDFs with selectable text.
+- **Data enrichment (optional)** — sources toggled in **Settings → Data
+  Sources** and fetched with the *Enrich Data* toolbar button:
   - **NIH iCite** — Relative Citation Ratio, NIH percentile, and Approximate
     Potential to Translate per PubMed-indexed work; mean RCR and mean APT per
     person; median RCR and APT plus a most-translational-faculty chart on the
@@ -128,6 +149,19 @@ individual profiles, coauthorship networks, and promotion insights.
   - **Semantic Scholar** — influential-citation counts per work (shared
     keyless rate pool, so this source can be slow; a manual Semantic Scholar
     ID field is honored when set).
+  - **ClinicalTrials.gov** — registered trials where the member is an overall
+    official (PI / study chair / study director), keyless, conservatively
+    name-matched: a trials card on each profile and a division rollup on the
+    Funding tab.
+  - **Scopus (Elsevier)** — the one keyed source: official Scopus h-index,
+    document, and citation counts per member (shown next to the OpenAlex
+    numbers, since promotion packets usually quote Scopus), plus
+    CiteScore/SNIP/SJR journal quality per publication via the Serial Title
+    API. Keys are free from [dev.elsevier.com](https://dev.elsevier.com) but
+    are authorized by the institution's IP range — calls only work on the
+    institutional network or VPN (or with an Elsevier-issued insttoken).
+    Members without a Scopus ID get a confirm-before-attach author search
+    that also writes the ID back to the roster.
 - **Sortable, searchable tables** — every table sorts by clicking column
   headers, and the people lists (Roster, Resolution, Faculty Profiles) have a
   search field filtering by name, rank, or division.
@@ -155,7 +189,7 @@ Or open `Package.swift` in Xcode and run the FacultyIQ scheme.
 ## Tests
 
 ```bash
-swift test                    # unit tests (CSV, roster mapping, metrics, trends, topics, funding, deltas, history, network, PDF)
+swift test                    # unit tests (CSV, roster mapping, metrics, trends, topics, funding, deltas, history, network, PDF, Scopus/trials fixtures)
 FACULTYIQ_LIVE=1 swift test   # + live API tests (OpenAlex, iCite, RePORTER, Semantic Scholar)
 ```
 
@@ -172,9 +206,13 @@ NetworkRenderTest` or `RENDER_OUT=/tmp swift test --filter PDFRenderTest`.
 3. **Dashboard / Profiles / Promotion / Topics / Network / External
    Collaborators** — explore; use the toolbar division picker to focus on one
    division.
-4. **Enrich (optional)** — enable iCite / RePORTER / Semantic Scholar in
-   **Settings → Data Enrichment**, then click *Enrich Data* in the toolbar;
-   the Funding tab lights up once grants are attached.
+4. **Enrich (optional)** — enable iCite / RePORTER / Semantic Scholar /
+   ClinicalTrials.gov / Scopus in **Settings → Data Sources** (Scopus also
+   needs your API key, and works only on the institutional network or VPN),
+   then click *Enrich Data* in the toolbar; the Funding tab lights up once
+   grants are attached. For Scopus journal-quality metrics on data fetched
+   before Scopus support existed, run *Refresh All Works* first so works
+   carry their venue ISSNs.
 5. **Export** — save CSVs, a division summary PDF, or a per-member promotion
    dossier PDF.
 6. **Come back later** — *Check for Updates* on the What's New tab re-fetches
@@ -191,18 +229,23 @@ Your roster stays on your Mac. All app state (roster, resolutions, fetched
 data, enrichment) lives in `~/Library/Application Support/FacultyIQ/` —
 outside this repository — and roster emails are never sent to any API. Network
 traffic is limited to OpenAlex lookups by author ID or name plus, when the
-optional enrichment sources are enabled, PMID/DOI/name lookups against NIH
-iCite, NIH RePORTER, and Semantic Scholar; everything is cached locally for
-7 days. The `data/` directory in this repo ignores everything except the
-fictional sample roster, so a real roster file placed there cannot be
-committed by accident.
+optional enrichment sources are enabled, PMID/DOI/name/ID lookups against NIH
+iCite, NIH RePORTER, Semantic Scholar, ClinicalTrials.gov, and Elsevier's
+Scopus APIs; everything is cached locally for 7 days. The Scopus API key is
+stored in the app's preferences on your Mac and sent only to api.elsevier.com.
+The `data/` directory in this repo ignores everything except the fictional
+sample roster, so a real roster file placed there cannot be committed by
+accident.
 
 ## Data sources
 
 [OpenAlex](https://openalex.org) is the primary source: profiles, works,
-citations, counts-by-year, OA status, and PMIDs, free without keys. Optional
-enrichment adds [NIH iCite](https://icite.od.nih.gov) (RCR / NIH percentile),
-[NIH RePORTER](https://reporter.nih.gov) (grants), and
-[Semantic Scholar](https://www.semanticscholar.org) (influential citations) —
-all keyless. The Shiny app's Scopus/Google Scholar/bibliometrix layers are not
-ported (paid keys or no API).
+citations, counts-by-year, OA status, PMIDs, and venue ISSNs, free without
+keys. Optional enrichment adds [NIH iCite](https://icite.od.nih.gov)
+(RCR / NIH percentile), [NIH RePORTER](https://reporter.nih.gov) (grants),
+[Semantic Scholar](https://www.semanticscholar.org) (influential citations),
+and [ClinicalTrials.gov](https://clinicaltrials.gov) (registered trials) —
+all keyless — plus [Scopus](https://dev.elsevier.com) (author metrics and
+CiteScore/SNIP/SJR journal quality) with a free but institution-bound
+Elsevier API key. The Shiny app's Google Scholar/bibliometrix layers are not
+ported (no API).

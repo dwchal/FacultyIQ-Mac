@@ -234,4 +234,81 @@ extension MetricsEngine {
         }
         return lines.joined(separator: "\n") + "\n"
     }
+
+    // MARK: Data health (ID gaps)
+
+    struct MemberIDGaps: Identifiable {
+        var member: FacultyMember
+        var missingORCID: Bool
+        var missingScopusID: Bool
+        var unresolved: Bool
+
+        var id: UUID { member.id }
+        var count: Int {
+            [missingORCID, missingScopusID, unresolved].count { $0 }
+        }
+    }
+
+    struct DataHealth {
+        var gaps: [MemberIDGaps]         // members with ≥1 gap, worst first
+        var worksMissingDOI: Int
+        var worksMissingPMID: Int
+        var totalWorks: Int
+
+        var isClean: Bool { gaps.isEmpty && worksMissingDOI == 0 }
+    }
+
+    /// Missing external IDs and un-joinable works — the gaps that quietly
+    /// degrade resolution, iCite, Semantic Scholar, and Scopus enrichment.
+    static func dataHealth(roster: [FacultyMember],
+                           resolutions: [UUID: Resolution],
+                           personData: [UUID: PersonData]) -> DataHealth {
+        let gaps = roster.compactMap { member -> MemberIDGaps? in
+            let entry = MemberIDGaps(
+                member: member,
+                missingORCID: (member.orcid ?? "").isEmpty,
+                missingScopusID: (member.scopusID ?? "").isEmpty,
+                unresolved: resolutions[member.id] == nil)
+            return entry.count > 0 ? entry : nil
+        }
+        .sorted { ($0.count, $1.member.name) > ($1.count, $0.member.name) }
+        var missingDOI = 0
+        var missingPMID = 0
+        var total = 0
+        for data in personData.values {
+            total += data.works.count
+            missingDOI += data.works.count { $0.doi == nil }
+            missingPMID += data.works.count { $0.pmid == nil }
+        }
+        return DataHealth(gaps: gaps, worksMissingDOI: missingDOI,
+                          worksMissingPMID: missingPMID, totalWorks: total)
+    }
+
+    // MARK: Scopus coverage cross-check
+
+    struct ScopusCoverage {
+        var scopusOnly: [ScopusDocRef]   // on the Scopus record, absent from OpenAlex
+        var openalexOnly: [Work]         // in OpenAlex, absent from Scopus
+        var matched: Int                 // DOIs present in both
+        var scopusWithoutDOI: Int        // Scopus docs that can't be compared
+        var openalexWithoutDOI: Int      // OpenAlex works that can't be compared
+    }
+
+    /// Diff the member's OpenAlex works against their Scopus document list by
+    /// bare DOI, both directions. Items without a DOI can't be compared and
+    /// are only counted.
+    static func scopusCoverage(works: [Work], documents: [ScopusDocRef]) -> ScopusCoverage {
+        let openalexDOIs = Set(works.compactMap { $0.doi?.bareDOI })
+        let scopusDOIs = Set(documents.compactMap { $0.doi?.bareDOI })
+        return ScopusCoverage(
+            scopusOnly: documents
+                .filter { doc in doc.doi.map { !openalexDOIs.contains($0.bareDOI) } ?? false }
+                .sorted { ($0.coverDate ?? "") > ($1.coverDate ?? "") },
+            openalexOnly: works
+                .filter { work in work.doi.map { !scopusDOIs.contains($0.bareDOI) } ?? false }
+                .sorted { ($0.year ?? 0, $0.citedByCount) > (($1.year ?? 0), $1.citedByCount) },
+            matched: openalexDOIs.intersection(scopusDOIs).count,
+            scopusWithoutDOI: documents.count { $0.doi == nil },
+            openalexWithoutDOI: works.count { $0.doi == nil })
+    }
 }

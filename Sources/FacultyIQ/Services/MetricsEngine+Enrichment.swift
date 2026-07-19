@@ -272,4 +272,91 @@ extension MetricsEngine {
         }
         return lines.joined(separator: "\n") + "\n"
     }
+
+    // MARK: Scopus journal quality
+
+    struct JournalQuality {
+        var ratedWorks: Int          // works whose venue has CiteScore data
+        var q1Works: Int
+        var medianCiteScore: Double? // across rated publications (not distinct journals)
+
+        var q1Share: Double? {
+            ratedWorks > 0 ? Double(q1Works) / Double(ratedWorks) : nil
+        }
+    }
+
+    /// Journal-quality rollup for a set of works against Scopus serial
+    /// metrics. Median CiteScore is per publication, so journals someone
+    /// publishes in repeatedly weigh accordingly.
+    static func journalQuality(works: [Work],
+                               journals: [String: ScopusJournalMetrics]) -> JournalQuality {
+        var rated = 0
+        var q1 = 0
+        var scores: [Double] = []
+        for work in works {
+            guard let issn = work.venueISSN, let metrics = journals[issn] else { continue }
+            if let quartile = metrics.quartile {
+                rated += 1
+                if quartile == 1 { q1 += 1 }
+            }
+            if let score = metrics.citeScore { scores.append(score) }
+        }
+        return JournalQuality(
+            ratedWorks: rated,
+            q1Works: q1,
+            medianCiteScore: scores.isEmpty ? nil : scores.median)
+    }
+
+    /// Every member's Scopus journal metrics merged into one ISSN lookup
+    /// (identical journals repeat across members, so collisions are benign).
+    static func mergedJournals(enrichment: [UUID: Enrichment]) -> [String: ScopusJournalMetrics] {
+        var merged: [String: ScopusJournalMetrics] = [:]
+        for entry in enrichment.values {
+            merged.merge(entry.scopus?.journalByISSN ?? [:]) { first, _ in first }
+        }
+        return merged
+    }
+
+    // MARK: Clinical trials
+
+    struct TrialsSummary {
+        var total: Int
+        var active: Int
+        var asPI: Int
+    }
+
+    static let activeTrialStatuses: Set<String> = [
+        "RECRUITING", "ACTIVE_NOT_RECRUITING", "ENROLLING_BY_INVITATION", "NOT_YET_RECRUITING",
+    ]
+
+    /// One-line division Scopus rollup for the summary report — median Scopus
+    /// h-index across enriched members plus the cohort Q1 share.
+    static func divisionScopusLine(roster: [FacultyMember],
+                                   personData: [UUID: PersonData],
+                                   enrichment: [UUID: Enrichment]) -> String? {
+        let hIndexes = roster.compactMap { enrichment[$0.id]?.scopus?.author?.hIndex }
+            .map(Double.init)
+        let journals = mergedJournals(enrichment: enrichment)
+        var parts: [String] = []
+        if !hIndexes.isEmpty {
+            parts.append("median h-index \(Int(hIndexes.median.rounded())) (\(hIndexes.count) enriched members)")
+        }
+        if !journals.isEmpty {
+            let distribution = quartileDistribution(
+                personData: roster.compactMap { personData[$0.id] }, journals: journals)
+            let rated = distribution.values.reduce(0, +)
+            if rated > 0 {
+                let share = Double(distribution[1] ?? 0) / Double(rated)
+                parts.append("\(share.formatted(.percent.precision(.fractionLength(0)))) of \(rated) rated publications in Q1 journals")
+            }
+        }
+        return parts.isEmpty ? nil : "Scopus: " + parts.joined(separator: " · ")
+    }
+
+    static func trialsSummary(_ trials: [ClinicalTrial]) -> TrialsSummary {
+        TrialsSummary(
+            total: trials.count,
+            active: trials.count { activeTrialStatuses.contains($0.status ?? "") },
+            asPI: trials.count { $0.role == "PRINCIPAL_INVESTIGATOR" })
+    }
 }

@@ -7,6 +7,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case whatsNew = "What's New"
     case profiles = "Faculty Profiles"
     case promotion = "Promotion Insights"
+    case comparison = "Compare Faculty"
     case topics = "Topics"
     case publications = "Publications"
     case funding = "Funding"
@@ -24,6 +25,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .whatsNew: "bell.badge"
         case .profiles: "person.text.rectangle"
         case .promotion: "arrow.up.right.circle"
+        case .comparison: "person.line.dotted.person"
         case .topics: "tag"
         case .publications: "doc.text"
         case .funding: "dollarsign.circle"
@@ -46,7 +48,7 @@ enum SidebarSection: String, CaseIterable {
     var items: [SidebarItem] {
         switch self {
         case .overview: [.dashboard, .whatsNew]
-        case .faculty: [.profiles, .promotion]
+        case .faculty: [.profiles, .promotion, .comparison]
         case .research: [.topics, .publications, .funding]
         case .collaboration: [.network, .external]
         case .data: [.roster, .resolution, .export]
@@ -134,6 +136,7 @@ struct ContentView: View {
         case .whatsNew: WhatsNewView()
         case .profiles: ProfilesView()
         case .promotion: PromotionView()
+        case .comparison: ComparisonView()
         case .topics: TopicsView()
         case .publications: PublicationsView()
         case .funding: FundingView()
@@ -147,8 +150,8 @@ struct ContentView: View {
     /// their own workflow toolbars.
     private var showsRefresh: Bool {
         switch selection ?? .dashboard {
-        case .dashboard, .whatsNew, .profiles, .promotion, .topics, .publications, .funding,
-             .network, .external, .export: true
+        case .dashboard, .whatsNew, .profiles, .promotion, .comparison, .topics, .publications,
+             .funding, .network, .external, .export: true
         case .roster, .resolution: false
         }
     }

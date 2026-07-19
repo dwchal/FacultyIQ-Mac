@@ -6,9 +6,14 @@ struct SettingsView: View {
     @AppStorage("enableICite") private var enableICite = false
     @AppStorage("enableReporter") private var enableReporter = false
     @AppStorage("enableSemanticScholar") private var enableSemanticScholar = false
+    @AppStorage("enableScopus") private var enableScopus = false
+    @AppStorage("scopusAPIKey") private var scopusAPIKey = ""
+    @AppStorage("scopusInsttoken") private var scopusInsttoken = ""
+    @AppStorage("enableTrials") private var enableTrials = false
     @AppStorage("autoCheckEnabled") private var autoCheckEnabled = false
     @AppStorage("autoCheckIntervalDays") private var autoCheckIntervalDays = 7
     @State private var cacheInfo = CacheStore.shared.sizeDescription
+    @State private var scopusQuota: [String: Int] = [:]
 
     var body: some View {
         Form {
@@ -31,9 +36,24 @@ struct SettingsView: View {
                 Text("Influential-citation counts per paper. The keyless API shares a global rate pool, so this source can be slow or temporarily throttled.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("ClinicalTrials.gov trials", isOn: $enableTrials)
+                Text("Registered clinical trials where the member is an overall official (PI/chair). Name matches are fuzzy — ambiguous names need a one-time confirmation on the member's profile. No key required.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text("Sources are fetched by the Enrich Data toolbar button after metrics are loaded; only author IDs, PMIDs, DOIs, and names are sent.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            Section("Scopus (Elsevier)") {
+                Toggle("Scopus author + journal metrics", isOn: $enableScopus)
+                SecureField("API key", text: $scopusAPIKey, prompt: Text("from dev.elsevier.com"))
+                SecureField("Insttoken (optional)", text: $scopusInsttoken, prompt: Text("only if issued by Elsevier"))
+                Text("Official Scopus h-index and citation counts per member, plus CiteScore/SNIP/SJR journal quality per publication. Keys are free from dev.elsevier.com but are authorized by the institution's IP range — calls only work on the institutional network or VPN unless Elsevier has issued an insttoken.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !scopusQuota.isEmpty {
+                    LabeledContent("Weekly quota remaining", value: scopusQuotaLabel)
+                }
             }
             Section("Automatic Updates") {
                 Toggle("Check for new activity automatically", isOn: $autoCheckEnabled)
@@ -71,6 +91,15 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
+        .task {
+            scopusQuota = await ScopusClient.shared.remainingQuota()
+        }
+    }
+
+    private var scopusQuotaLabel: String {
+        scopusQuota.sorted { $0.key < $1.key }
+            .map { "\($0.key) \($0.value)" }
+            .joined(separator: " · ")
     }
 
     private var lastCheckLabel: String {

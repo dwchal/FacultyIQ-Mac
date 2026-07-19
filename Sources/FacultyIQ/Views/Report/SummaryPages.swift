@@ -8,14 +8,15 @@ enum SummaryPages {
                       metrics: [PersonMetrics],
                       personData: [PersonData],
                       benchmarks: [RankBenchmark],
-                      divisionName: String?) -> [AnyView] {
+                      divisionName: String?,
+                      scopusLine: String? = nil) -> [AnyView] {
         let scope = divisionName ?? "All Divisions"
         func footer(_ page: Int) -> String {
             "\(scope) — Faculty Report · page \(page)/2 · \(ReportStyle.generatedLine)"
         }
         return [
             AnyView(firstPage(summary: summary, personData: personData,
-                              scope: scope, footer: footer(1))),
+                              scope: scope, scopusLine: scopusLine, footer: footer(1))),
             AnyView(secondPage(metrics: metrics, personData: personData,
                                benchmarks: benchmarks, footer: footer(2))),
         ]
@@ -24,6 +25,7 @@ enum SummaryPages {
     private static func firstPage(summary: DivisionSummary,
                                   personData: [PersonData],
                                   scope: String,
+                                  scopusLine: String?,
                                   footer: String) -> some View {
         ReportPage(footer: footer) {
             VStack(alignment: .leading, spacing: 18) {
@@ -42,6 +44,12 @@ enum SummaryPages {
                         ReportTile(label: "Open Access",
                                    value: summary.oaPercent.map { String(format: "%.0f%%", $0) } ?? "—")
                     }
+                }
+
+                if let scopusLine {
+                    Text(scopusLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 chartSection("Publications per Year",

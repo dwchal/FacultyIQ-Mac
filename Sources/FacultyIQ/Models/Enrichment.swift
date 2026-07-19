@@ -70,6 +70,91 @@ struct S2Data: Codable, Hashable {
     var fetchedAt: Date
 }
 
+// MARK: - Scopus (Elsevier)
+
+/// Author-level metrics from Scopus — the counts promotion committees
+/// typically require, kept alongside the OpenAlex numbers for comparison.
+struct ScopusAuthorMetrics: Codable, Hashable {
+    var scopusAuthorID: String
+    var documentCount: Int?
+    var citedByCount: Int?       // documents citing this author
+    var citationCount: Int?      // total citations received
+    var hIndex: Int?
+    var currentAffiliation: String?
+}
+
+/// Journal quality metrics from the Scopus Serial Title API, keyed by ISSN.
+struct ScopusJournalMetrics: Codable, Hashable {
+    var issn: String
+    var title: String?
+    var citeScore: Double?
+    var citeScoreYear: Int?
+    var topPercentile: Double?   // best subject-area CiteScore percentile, 0…99
+    var snip: Double?
+    var sjr: Double?
+
+    /// CiteScore quartile from the best subject-area percentile (Q1 = top 25%).
+    var quartile: Int? {
+        guard let topPercentile else { return nil }
+        switch topPercentile {
+        case 75...: return 1
+        case 50..<75: return 2
+        case 25..<50: return 3
+        default: return 4
+        }
+    }
+}
+
+/// One document on the author's Scopus record, for coverage cross-checks.
+struct ScopusDocRef: Codable, Hashable {
+    var eid: String              // e.g. "2-s2.0-85141234567"
+    var doi: String?
+    var title: String?
+    var coverDate: String?
+}
+
+struct ScopusData: Codable, Hashable {
+    var author: ScopusAuthorMetrics?
+    var journalByISSN: [String: ScopusJournalMetrics]
+    var documents: [ScopusDocRef]?  // nil until the coverage audit fetches them
+    var fetchedAt: Date
+}
+
+/// An author candidate from a Scopus name search — like RePORTER PI search,
+/// name matching is fuzzy, so metrics are only attached after the user
+/// confirms a candidate (which also writes the ID back to the roster).
+struct ScopusAuthorCandidate: Identifiable, Hashable {
+    var scopusID: String
+    var name: String
+    var affiliation: String?
+    var city: String?
+    var documentCount: Int?
+
+    var id: String { scopusID }
+}
+
+// MARK: - ClinicalTrials.gov
+
+/// One registered trial where the member is an overall official.
+struct ClinicalTrial: Codable, Hashable, Identifiable {
+    var nctID: String            // e.g. "NCT04280705"
+    var title: String
+    var status: String?          // e.g. "RECRUITING", "COMPLETED"
+    var phase: String?           // e.g. "PHASE3", "PHASE2/PHASE3"
+    var role: String?            // PRINCIPAL_INVESTIGATOR | STUDY_CHAIR | STUDY_DIRECTOR
+    var sponsor: String?
+    var startDate: String?       // "YYYY-MM" or "YYYY-MM-DD"
+    var completionDate: String?
+    var enrollment: Int?
+
+    var id: String { nctID }
+}
+
+struct TrialsData: Codable, Hashable {
+    var trials: [ClinicalTrial]
+    var fetchedAt: Date
+}
+
 // MARK: - Peer benchmark cohort
 
 /// Where a member stands within a random OpenAlex sample of authors active on
@@ -92,6 +177,8 @@ struct Enrichment: Codable, Hashable {
     var grants: GrantData?
     var semanticScholar: S2Data?
     var peerCohort: PeerCohortData?
+    var scopus: ScopusData?
+    var trials: TrialsData?
 
     /// Core project numbers the user removed by hand (RePORTER name matching
     /// occasionally attaches someone else's grant). Kept separate from

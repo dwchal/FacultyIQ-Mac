@@ -133,7 +133,10 @@ private struct ProfileDetail: View {
     @State private var worksSort = [KeyPathComparator(\Work.citedByCount, order: .reverse)]
     @State private var showGrantsSheet = false
     @State private var showAuditSheet = false
+    @State private var showScopusSheet = false
     @AppStorage("enableReporter") private var reporterEnabled = false
+    @AppStorage("enableScopus") private var scopusEnabled = false
+    @AppStorage("enableTrials") private var trialsEnabled = false
 
     var body: some View {
         ScrollView {
@@ -144,6 +147,8 @@ private struct ProfileDetail: View {
                 peerBenchmarkCard
                 promotionCard
                 fundingCard
+                scopusCard
+                trialsCard
                 trendChart
                 authorshipCard
                 trajectoryCard
@@ -158,6 +163,154 @@ private struct ProfileDetail: View {
         .sheet(isPresented: $showAuditSheet) {
             WorksAuditSheet(member: member)
         }
+        .sheet(isPresented: $showScopusSheet) {
+            ScopusConfirmSheet(member: member)
+        }
+    }
+
+    // MARK: Scopus
+
+    /// Official Scopus numbers next to the OpenAlex ones — the counts
+    /// promotion packets quote — plus the member's journal-quality rollup.
+    @ViewBuilder
+    private var scopusCard: some View {
+        if let scopus = enrichment?.scopus, let author = scopus.author {
+            let quality = MetricsEngine.journalQuality(
+                works: data.works, journals: scopus.journalByISSN)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Scopus").font(.headline)
+                        Text("Official Scopus record \(author.scopusAuthorID)\(author.currentAffiliation.map { " · \($0)" } ?? "") · fetched \(scopus.fetchedAt.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Find Scopus Author…") { showScopusSheet = true }
+                        .controlSize(.small)
+                }
+                HStack(spacing: 12) {
+                    scopusTile("Scopus h-index", author.hIndex.map(String.init) ?? "—",
+                               caption: hIndexDeltaCaption(author.hIndex))
+                    scopusTile("Documents", author.documentCount.map(String.init) ?? "—",
+                               caption: "vs \(metrics.worksCount) in OpenAlex")
+                    scopusTile("Citations", author.citationCount.map { $0.formatted() } ?? "—",
+                               caption: "vs \(metrics.citations.formatted()) in OpenAlex")
+                    if let share = quality.q1Share {
+                        scopusTile("Q1 journals", share.formatted(.percent.precision(.fractionLength(0))),
+                                   caption: "of \(quality.ratedWorks) rated publications")
+                    }
+                }
+                if quality.ratedWorks == 0 {
+                    Text("No journal-quality data yet — works need venue ISSNs; use Refresh All Works, then Enrich Data.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        } else if scopusEnabled {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Scopus").font(.headline)
+                    Text(member.scopusID?.isEmpty == false
+                         ? "Not enriched yet — run Enrich Data from the toolbar."
+                         : "No Scopus ID on the roster — search Scopus and confirm the author record.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Find Scopus Author…") { showScopusSheet = true }
+            }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func scopusTile(_ label: String, _ value: String, caption: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value).font(.title2.weight(.semibold))
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            if let caption {
+                Text(caption).font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func hIndexDeltaCaption(_ scopusH: Int?) -> String? {
+        guard let scopusH, let openalexH = data.profile.hIndex else { return nil }
+        let delta = scopusH - openalexH
+        if delta == 0 { return "matches OpenAlex" }
+        return "\(delta > 0 ? "+" : "")\(delta) vs OpenAlex (\(openalexH))"
+    }
+
+    // MARK: Clinical trials
+
+    @ViewBuilder
+    private var trialsCard: some View {
+        if let trialsData = enrichment?.trials {
+            let summary = MetricsEngine.trialsSummary(trialsData.trials)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Clinical Trials").font(.headline)
+                    Spacer()
+                    Text("ClinicalTrials.gov, matched by investigator name")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if trialsData.trials.isEmpty {
+                    Text("No registered trials list \(member.name) as an overall official.")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                } else {
+                    Text("\(summary.total) registered \(summary.total == 1 ? "trial" : "trials") · \(summary.asPI) as PI · \(summary.active) active")
+                        .font(.callout)
+                    Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 5) {
+                        ForEach(trialsData.trials.prefix(8)) { trial in
+                            GridRow {
+                                Link(trial.nctID, destination:
+                                        URL(string: "https://clinicaltrials.gov/study/\(trial.nctID)")!)
+                                    .font(.caption.monospaced())
+                                Text(trial.title)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(trialPhaseLabel(trial.phase))
+                                    .foregroundStyle(.secondary)
+                                Text(trialStatusLabel(trial.status))
+                                    .foregroundStyle(MetricsEngine.activeTrialStatuses.contains(trial.status ?? "")
+                                                     ? ChartPalette.positive : .secondary)
+                            }
+                            .font(.callout)
+                        }
+                    }
+                    if trialsData.trials.count > 8 {
+                        Text("+ \(trialsData.trials.count - 8) more on ClinicalTrials.gov")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        } else if trialsEnabled {
+            EmptyView()
+        }
+    }
+
+    private func trialPhaseLabel(_ phase: String?) -> String {
+        guard let phase, !phase.isEmpty else { return "—" }
+        return phase
+            .replacingOccurrences(of: "PHASE", with: "Ph ")
+            .replacingOccurrences(of: "NA", with: "—")
+            .replacingOccurrences(of: "EARLY_", with: "Early ")
+    }
+
+    private func trialStatusLabel(_ status: String?) -> String {
+        guard let status else { return "—" }
+        return status.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
     // MARK: Data quality

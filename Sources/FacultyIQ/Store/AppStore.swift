@@ -522,17 +522,33 @@ final class AppStore: ObservableObject {
 
     // MARK: Enrichment
 
+    enum AppError: LocalizedError {
+        case needsScopusID
+
+        var errorDescription: String? {
+            switch self {
+            case .needsScopusID:
+                "no Scopus ID on the roster — use Find Scopus Author on the member's profile."
+            }
+        }
+    }
+
     /// Which enrichment sources the user has switched on in Settings.
-    var enabledEnrichmentSources: (icite: Bool, reporter: Bool, semanticScholar: Bool) {
+    var enabledEnrichmentSources: (icite: Bool, reporter: Bool, semanticScholar: Bool, scopus: Bool, trials: Bool) {
         let defaults = UserDefaults.standard
+        let scopusKey = defaults.string(forKey: "scopusAPIKey")?
+            .trimmingCharacters(in: .whitespaces) ?? ""
         return (defaults.bool(forKey: "enableICite"),
                 defaults.bool(forKey: "enableReporter"),
-                defaults.bool(forKey: "enableSemanticScholar"))
+                defaults.bool(forKey: "enableSemanticScholar"),
+                defaults.bool(forKey: "enableScopus") && !scopusKey.isEmpty,
+                defaults.bool(forKey: "enableTrials"))
     }
 
     var anyEnrichmentEnabled: Bool {
         let sources = enabledEnrichmentSources
         return sources.icite || sources.reporter || sources.semanticScholar
+            || sources.scopus || sources.trials
     }
 
     /// Opt-in second phase after the OpenAlex fetch: pull iCite citation
@@ -561,6 +577,94 @@ final class AppStore: ObservableObject {
             await runBatch(label: "Enriching (Semantic Scholar)", items: pending) { member in
                 try await self.enrichSemanticScholar(member)
             }
+        }
+        if sources.scopus {
+            let pending = members.filter { refresh || enrichment[$0.id]?.scopus == nil }
+            await runBatch(label: "Enriching (Scopus)", items: pending) { member in
+                try await self.enrichScopus(member)
+            }
+        }
+        if sources.trials {
+            let pending = members.filter { refresh || enrichment[$0.id]?.trials == nil }
+            await runBatch(label: "Enriching (ClinicalTrials.gov)", items: pending) { member in
+                try await self.enrichTrials(member)
+            }
+        }
+    }
+
+    /// Author metrics via the member's Scopus ID plus journal quality metrics
+    /// for every distinct ISSN in their works (the response cache dedupes
+    /// journals shared across members). Members without a Scopus ID are
+    /// skipped with a nudge toward the profile's Find Scopus Author sheet —
+    /// never name-matched silently.
+    private func enrichScopus(_ member: FacultyMember) async throws {
+        guard let data = personData[member.id] else { return }
+        guard let scopusID = member.scopusID, !scopusID.isEmpty else {
+            throw AppError.needsScopusID
+        }
+        let author = try await ScopusClient.shared.author(scopusID: scopusID)
+
+        var journals = enrichment[member.id]?.scopus?.journalByISSN ?? [:]
+        let issns = Set(data.works.compactMap(\.venueISSN))
+        for issn in issns {
+            if let metrics = try? await ScopusClient.shared.serialMetrics(issn: issn) {
+                journals[issn] = metrics
+            }
+        }
+
+        var entry = enrichment[member.id] ?? Enrichment()
+        entry.scopus = ScopusData(
+            author: author,
+            journalByISSN: journals,
+            documents: entry.scopus?.documents,
+            fetchedAt: Date())
+        enrichment[member.id] = entry
+        save()
+    }
+
+    /// Scopus author candidates for the profile confirm sheet.
+    func searchScopusAuthors(name: String) async -> [ScopusAuthorCandidate] {
+        let criteria = ReporterClient.piNameCriteria(from: name)
+        do {
+            return try await ScopusClient.shared.searchAuthors(
+                lastName: criteria.lastName ?? criteria.anyName ?? name,
+                firstName: criteria.firstName)
+        } catch {
+            lastError = error.localizedDescription
+            return []
+        }
+    }
+
+    /// Write a confirmed Scopus author back to the roster (which also lets
+    /// OpenAlex resolution use it) and enrich immediately.
+    func attachScopusAuthor(_ member: FacultyMember, candidate: ScopusAuthorCandidate) async {
+        guard let index = roster.firstIndex(where: { $0.id == member.id }) else { return }
+        roster[index].scopusID = candidate.scopusID
+        save()
+        await runBatch(label: "Enriching (Scopus)", items: [roster[index]]) { member in
+            try await self.enrichScopus(member)
+        }
+    }
+
+    /// Pull the member's full Scopus document list for the coverage audit.
+    func fetchScopusDocuments(for member: FacultyMember) async {
+        guard let scopusID = member.scopusID, !scopusID.isEmpty, !isBusy else { return }
+        isBusy = true
+        progressText = "Fetching Scopus documents for \(member.name)…"
+        defer {
+            progressText = ""
+            isBusy = false
+        }
+        do {
+            let docs = try await ScopusClient.shared.documents(scopusID: scopusID)
+            var entry = enrichment[member.id] ?? Enrichment()
+            var scopus = entry.scopus ?? ScopusData(author: nil, journalByISSN: [:], fetchedAt: Date())
+            scopus.documents = docs
+            entry.scopus = scopus
+            enrichment[member.id] = entry
+            save()
+        } catch {
+            lastError = error.localizedDescription
         }
     }
 
@@ -657,6 +761,18 @@ final class AppStore: ObservableObject {
             member: member, resolvedName: resolution.displayName, works: data.works)
         var entry = enrichment[member.id] ?? Enrichment()
         entry.semanticScholar = s2
+        enrichment[member.id] = entry
+        save()
+    }
+
+    /// Registered trials where the member appears as an overall official.
+    /// Matching is by normalized name tokens (client-side, conservative), so
+    /// common names can still over-match — the card shows the trial list for
+    /// eyeballing.
+    private func enrichTrials(_ member: FacultyMember) async throws {
+        let trials = try await ClinicalTrialsClient.shared.trials(officialName: member.name)
+        var entry = enrichment[member.id] ?? Enrichment()
+        entry.trials = TrialsData(trials: trials, fetchedAt: Date())
         enrichment[member.id] = entry
         save()
     }

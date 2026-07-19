@@ -25,6 +25,7 @@ struct PublicationsView: View {
                         trendCard(types)
                     }
                     retractionsCard
+                    journalQualityCard
                     oaDetailCard
                     venuesCard
                 }
@@ -173,9 +174,57 @@ struct PublicationsView: View {
         return known + present.subtracting(known).sorted()
     }
 
+    private var journals: [String: ScopusJournalMetrics] {
+        MetricsEngine.mergedJournals(enrichment: store.enrichment)
+    }
+
+    /// Division-level journal quality from Scopus CiteScore quartiles; only
+    /// appears once Scopus enrichment has journal data.
+    @ViewBuilder
+    private var journalQualityCard: some View {
+        let journals = journals
+        if !journals.isEmpty {
+            let distribution = MetricsEngine.quartileDistribution(
+                personData: fetched, journals: journals)
+            let rated = distribution.values.reduce(0, +)
+            if rated > 0 {
+                let q1 = distribution[1] ?? 0
+                let q1Share = (Double(q1) / Double(rated)).formatted(.percent.precision(.fractionLength(0)))
+                card("Journal Quality",
+                     subtitle: "Scopus CiteScore quartile of each publication's venue · \(rated) rated works · \(q1Share) in Q1 journals") {
+                    Chart((1...4).map { ($0, distribution[$0] ?? 0) }, id: \.0) { quartile, count in
+                        BarMark(
+                            x: .value("Works", count),
+                            y: .value("Quartile", "Q\(quartile)"),
+                            height: .ratio(0.7)
+                        )
+                        .foregroundStyle(quartile == 1 ? ChartPalette.positive : ChartPalette.series1)
+                        .cornerRadius(2)
+                        .annotation(position: .trailing, spacing: 4) {
+                            Text(count.formatted())
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .chartXAxis(.hidden)
+                    .chartYAxis {
+                        AxisMarks { _ in
+                            AxisValueLabel()
+                        }
+                    }
+                    .frame(height: 4 * 26)
+                }
+            }
+        }
+    }
+
     private var venuesCard: some View {
-        let venues = MetricsEngine.venueCounts(personData: fetched)
-        return card("Top Venues", subtitle: "\(venues.count) venues across the cohort in view") {
+        let journals = journals
+        let venues = MetricsEngine.venueCounts(personData: fetched, journals: journals)
+        let hasScopus = !journals.isEmpty
+        return card("Top Venues", subtitle: hasScopus
+                    ? "\(venues.count) venues across the cohort in view · CiteScore/SJR/quartile from Scopus"
+                    : "\(venues.count) venues across the cohort in view") {
             Table(venues.sorted(using: sortOrder), sortOrder: $sortOrder) {
                 TableColumn("Venue", value: \.name)
                 TableColumn("Works", value: \.works) { Text("\($0.works)") }
@@ -184,8 +233,35 @@ struct PublicationsView: View {
                     .width(80)
                 TableColumn("Faculty", value: \.people) { Text("\($0.people)") }
                     .width(60)
+                TableColumn("CiteScore", value: \.citeScoreSort) { venue in
+                    Text(venue.scopus?.citeScore.map { $0.formatted(.number.precision(.fractionLength(1))) } ?? "—")
+                }
+                .width(70)
+                TableColumn("SJR", value: \.sjrSort) { venue in
+                    Text(venue.scopus?.sjr.map { $0.formatted(.number.precision(.fractionLength(2))) } ?? "—")
+                }
+                .width(55)
+                TableColumn("Quartile", value: \.quartileSort) { venue in
+                    quartileBadge(venue.scopus?.quartile)
+                }
+                .width(60)
             }
             .frame(height: 320)
+        }
+    }
+
+    @ViewBuilder
+    private func quartileBadge(_ quartile: Int?) -> some View {
+        if let quartile {
+            Text("Q\(quartile)")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(quartile == 1 ? ChartPalette.positive.opacity(0.2) : Color.clear,
+                            in: Capsule())
+                .foregroundStyle(quartile == 1 ? ChartPalette.positive : .secondary)
+        } else {
+            Text("—").foregroundStyle(.tertiary)
         }
     }
 

@@ -95,16 +95,26 @@ extension MetricsEngine {
         var works: Int           // distinct works across the cohort
         var citations: Int       // summed once per distinct work
         var people: Int          // members with at least one work in the venue
+        var issn: String? = nil  // most common linking ISSN among the venue's works
+        var scopus: ScopusJournalMetrics? = nil
 
         var id: String { name }
+
+        // Non-optional sort keys so the Table columns stay sortable.
+        var citeScoreSort: Double { scopus?.citeScore ?? -1 }
+        var sjrSort: Double { scopus?.sjr ?? -1 }
+        var quartileSort: Int { scopus?.quartile ?? 9 }
     }
 
-    /// Distinct works and citations per venue across the cohort. Works
-    /// without a venue are skipped.
-    static func venueCounts(personData: [PersonData]) -> [VenueCount] {
+    /// Distinct works and citations per venue across the cohort, with Scopus
+    /// journal metrics joined by ISSN when available. Works without a venue
+    /// are skipped.
+    static func venueCounts(personData: [PersonData],
+                            journals: [String: ScopusJournalMetrics] = [:]) -> [VenueCount] {
         var seenByVenue: [String: Set<String>] = [:]
         var citationsByVenue: [String: Int] = [:]
         var peopleByVenue: [String: Int] = [:]
+        var issnVotes: [String: [String: Int]] = [:]
         for data in personData {
             var personVenues = Set<String>()
             for work in data.works {
@@ -113,6 +123,9 @@ extension MetricsEngine {
                 if seenByVenue[venue, default: []].insert(work.id).inserted {
                     citationsByVenue[venue, default: 0] += work.citedByCount
                 }
+                if let issn = work.venueISSN {
+                    issnVotes[venue, default: [:]][issn, default: 0] += 1
+                }
             }
             for venue in personVenues {
                 peopleByVenue[venue, default: 0] += 1
@@ -120,11 +133,31 @@ extension MetricsEngine {
         }
         return seenByVenue
             .map { venue, ids in
-                VenueCount(name: venue, works: ids.count,
-                           citations: citationsByVenue[venue] ?? 0,
-                           people: peopleByVenue[venue] ?? 0)
+                let issn = issnVotes[venue]?.max { $0.value < $1.value }?.key
+                return VenueCount(name: venue, works: ids.count,
+                                  citations: citationsByVenue[venue] ?? 0,
+                                  people: peopleByVenue[venue] ?? 0,
+                                  issn: issn,
+                                  scopus: issn.flatMap { journals[$0] })
             }
             .sorted { ($0.works, $0.citations, $1.name) > ($1.works, $1.citations, $0.name) }
+    }
+
+    /// Quartile distribution of the cohort's rated publications (distinct
+    /// works whose venue has Scopus CiteScore data), Q1…Q4.
+    static func quartileDistribution(personData: [PersonData],
+                                     journals: [String: ScopusJournalMetrics]) -> [Int: Int] {
+        var seen = Set<String>()
+        var counts: [Int: Int] = [:]
+        for data in personData {
+            for work in data.works {
+                guard seen.insert(work.id).inserted,
+                      let issn = work.venueISSN,
+                      let quartile = journals[issn]?.quartile else { continue }
+                counts[quartile, default: 0] += 1
+            }
+        }
+        return counts
     }
 
     // MARK: Open-access status

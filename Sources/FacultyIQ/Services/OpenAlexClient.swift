@@ -264,6 +264,7 @@ private struct OAWork: Decodable {
     struct Location: Decodable {
         struct Source: Decodable {
             var displayName: String?
+            var issnL: String?
         }
         var source: Source?
     }
@@ -319,6 +320,7 @@ private struct OAWork: Decodable {
             isOA: openAccess?.isOa,
             oaStatus: openAccess?.oaStatus,
             venue: primaryLocation?.source?.displayName,
+            venueISSN: primaryLocation?.source?.issnL,
             authors: authorships.map { list in
                 list.compactMap { entry in
                     guard let authorID = entry.author?.id else { return nil }

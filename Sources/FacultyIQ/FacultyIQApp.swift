@@ -95,7 +95,10 @@ struct FacultyIQApp: App {
             metrics: store.metrics,
             personData: store.filteredPersonData,
             benchmarks: store.benchmarks,
-            divisionName: scope)
+            divisionName: scope,
+            scopusLine: MetricsEngine.divisionScopusLine(
+                roster: store.filteredRoster, personData: store.personData,
+                enrichment: store.enrichment))
         if case .failure(let error) = SavePanel.run(
             defaultName: "\(scope?.lowercased().replacingOccurrences(of: " ", with: "_") ?? "faculty")_report.pdf",
             type: .pdf,

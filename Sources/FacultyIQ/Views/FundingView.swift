@@ -52,9 +52,56 @@ struct FundingView: View {
             activityCard(funding)
         }
         topFundedCard(funding)
+        trialsCard
         Text("Multi-PI projects shared by two roster members count once in the totals and charts. Amounts are summed NIH award dollars across the fiscal years RePORTER reports.")
             .font(.caption)
             .foregroundStyle(.secondary)
+    }
+
+    /// Division rollup of registered trials, once ClinicalTrials.gov
+    /// enrichment has run. Shared trials (co-officials on the roster) count
+    /// once in the totals.
+    @ViewBuilder
+    private var trialsCard: some View {
+        let entries = store.filteredRoster.compactMap { member in
+            (store.enrichment[member.id]?.trials).map { (member: member, trials: $0.trials) }
+        }
+        if !entries.isEmpty {
+            let distinct = Dictionary(
+                entries.flatMap(\.trials).map { ($0.nctID, $0) },
+                uniquingKeysWith: { first, _ in first })
+            let summary = MetricsEngine.trialsSummary(Array(distinct.values))
+            let leaders = entries
+                .map { (name: $0.member.name, count: $0.trials.count) }
+                .filter { $0.count > 0 }
+                .sorted { $0.count > $1.count }
+            card("Clinical Trials",
+                 subtitle: "ClinicalTrials.gov · \(entries.count) members checked · trials shared within the roster count once") {
+                if summary.total == 0 {
+                    Text("No registered trials list checked members as overall officials.")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("\(summary.total) registered \(summary.total == 1 ? "trial" : "trials") · \(summary.asPI) with a roster member as PI · \(summary.active) active")
+                            .font(.callout)
+                        Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 4) {
+                            ForEach(leaders.prefix(8), id: \.name) { leader in
+                                GridRow {
+                                    Text(leader.name)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text("\(leader.count) \(leader.count == 1 ? "trial" : "trials")")
+                                        .foregroundStyle(.secondary)
+                                        .gridColumnAlignment(.trailing)
+                                        .monospacedDigit()
+                                }
+                                .font(.callout)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var emptyState: some View {

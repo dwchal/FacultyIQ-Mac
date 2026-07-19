@@ -5,6 +5,9 @@ import SwiftUI
 struct ResolutionView: View {
     @EnvironmentObject private var store: AppStore
     @State private var searchTarget: FacultyMember?
+    @State private var scopusTarget: FacultyMember?
+    @State private var editTarget: FacultyMember?
+    @State private var showHealthDetail = false
     @State private var sortOrder: [KeyPathComparator<ResolutionRow>] = [] // empty = roster order
     @State private var searchText = ""
 
@@ -49,7 +52,10 @@ struct ResolutionView: View {
                     description: Text("Import a roster first, then resolve each member to an OpenAlex author.")
                 )
             } else {
-                table
+                VStack(spacing: 0) {
+                    dataHealthBar
+                    table
+                }
             }
         }
         .searchable(text: $searchText, prompt: "Name, rank, or division")
@@ -75,6 +81,107 @@ struct ResolutionView: View {
         .sheet(item: $searchTarget) { member in
             AuthorSearchSheet(member: member)
         }
+        .sheet(item: $scopusTarget) { member in
+            ScopusConfirmSheet(member: member)
+        }
+        .sheet(item: $editTarget) { member in
+            MemberEditorSheet(member: member)
+        }
+    }
+
+    // MARK: Data health
+
+    /// ID gaps that quietly degrade downstream sources: no ORCID (weakest
+    /// resolution), no Scopus ID (no Scopus metrics), unresolved members, and
+    /// works that can't be joined to PubMed/DOI-keyed sources.
+    @ViewBuilder
+    private var dataHealthBar: some View {
+        let health = MetricsEngine.dataHealth(
+            roster: store.roster, resolutions: store.resolutions, personData: store.personData)
+        if !health.isClean {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: "stethoscope")
+                        .foregroundStyle(.secondary)
+                    Text(healthSummary(health))
+                        .font(.caption)
+                    Spacer()
+                    if !health.gaps.isEmpty {
+                        Button(showHealthDetail ? "Hide" : "Review Gaps") {
+                            showHealthDetail.toggle()
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                if showHealthDetail {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(health.gaps) { gap in
+                                HStack(spacing: 8) {
+                                    Text(gap.member.name)
+                                        .frame(width: 180, alignment: .leading)
+                                        .lineLimit(1)
+                                    if gap.unresolved { gapBadge("unresolved") }
+                                    if gap.missingORCID { gapBadge("no ORCID") }
+                                    if gap.missingScopusID { gapBadge("no Scopus ID") }
+                                    Spacer()
+                                    if gap.missingORCID {
+                                        Link("ORCID search",
+                                             destination: orcidSearchURL(gap.member.name))
+                                            .font(.caption)
+                                    }
+                                    if gap.missingScopusID {
+                                        Button("Find Scopus Author…") { scopusTarget = gap.member }
+                                            .buttonStyle(.link)
+                                            .font(.caption)
+                                    }
+                                    Button("Edit…") { editTarget = gap.member }
+                                        .buttonStyle(.link)
+                                        .font(.caption)
+                                }
+                                .font(.callout)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 170)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.quaternary.opacity(0.35))
+        }
+    }
+
+    private func healthSummary(_ health: MetricsEngine.DataHealth) -> String {
+        var parts: [String] = []
+        let unresolved = health.gaps.count(where: \.unresolved)
+        let noORCID = health.gaps.count(where: \.missingORCID)
+        let noScopus = health.gaps.count(where: \.missingScopusID)
+        if unresolved > 0 { parts.append("\(unresolved) unresolved") }
+        if noORCID > 0 { parts.append("\(noORCID) missing ORCID") }
+        if noScopus > 0 { parts.append("\(noScopus) missing Scopus ID") }
+        if health.totalWorks > 0, health.worksMissingDOI > 0 {
+            parts.append("\(health.worksMissingDOI)/\(health.totalWorks) works lack a DOI (skip Scopus/S2 joins)")
+        }
+        if health.totalWorks > 0, health.worksMissingPMID > 0 {
+            parts.append("\(health.worksMissingPMID) lack a PMID (skip iCite)")
+        }
+        return "Data health: " + parts.joined(separator: " · ")
+    }
+
+    private func gapBadge(_ label: String) -> some View {
+        Text(label)
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(ChartPalette.series3.opacity(0.2), in: Capsule())
+    }
+
+    private func orcidSearchURL(_ name: String) -> URL {
+        var components = URLComponents(string: "https://orcid.org/orcid-search/search")!
+        components.queryItems = [URLQueryItem(name: "searchQuery", value: name)]
+        return components.url!
     }
 
     private var table: some View {

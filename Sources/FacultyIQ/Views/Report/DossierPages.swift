@@ -128,6 +128,25 @@ enum DossierPages {
             let total = funding.totalAwarded.formatted(.currency(code: "USD").precision(.fractionLength(0)))
             parts.append("NIH funding: \(total) across \(funding.grantCount) projects · \(funding.activeCount) active · \(funding.r01EquivalentCount) R01-equivalent")
         }
+        if let author = enrichment?.scopus?.author {
+            var scopusParts: [String] = []
+            if let h = author.hIndex { scopusParts.append("h-index \(h)") }
+            if let docs = author.documentCount { scopusParts.append("\(docs) documents") }
+            if let cites = author.citationCount { scopusParts.append("\(cites.formatted()) citations") }
+            if !scopusParts.isEmpty {
+                parts.append("Scopus: " + scopusParts.joined(separator: " · "))
+            }
+        }
+        if let journals = enrichment?.scopus?.journalByISSN, !journals.isEmpty {
+            let quality = MetricsEngine.journalQuality(works: data.works, journals: journals)
+            if let share = quality.q1Share {
+                parts.append("\(share.formatted(.percent.precision(.fractionLength(0)))) of \(quality.ratedWorks) rated publications in Q1 journals (Scopus CiteScore)")
+            }
+        }
+        if let trials = enrichment?.trials?.trials, !trials.isEmpty {
+            let summary = MetricsEngine.trialsSummary(trials)
+            parts.append("\(summary.total) registered clinical \(summary.total == 1 ? "trial" : "trials") (\(summary.asPI) as PI, \(summary.active) active)")
+        }
         return parts.isEmpty ? nil : parts.joined(separator: " — ")
     }
 

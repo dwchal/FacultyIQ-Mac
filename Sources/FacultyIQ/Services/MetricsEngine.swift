@@ -435,7 +435,7 @@ enum MetricsEngine {
                            personData: [UUID: PersonData] = [:],
                            enrichment: [UUID: Enrichment] = [:]) -> String {
         let byID = Dictionary(uniqueKeysWithValues: roster.map { ($0.id, $0) })
-        var lines = ["Name,Rank,Division,Status,Works,Citations,h-index,i10-index,Independent h-index,First Author Works,Senior Author Works,Senior Share 5y %,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,ORCID,Scopus ID"]
+        var lines = ["Name,Rank,Division,Status,Works,Citations,h-index,i10-index,Independent h-index,First Author Works,Senior Author Works,Senior Share 5y %,Citations/Work,Works/Year,OA %,Recent Works (5y),First Pub Year,Career Years,Mean RCR,NIH Grants,Total NIH Funding,Scopus h-index,Scopus Documents,Scopus Citations,Q1 Journal %,Median CiteScore,Clinical Trials,Trials as PI,ORCID,Scopus ID"]
         for m in metrics.sorted(by: { $0.name < $1.name }) {
             let member = byID[m.memberID]
             let rcr: Double? = personData[m.memberID].flatMap {
@@ -467,6 +467,20 @@ enum MetricsEngine {
                 rcr.map { String(format: "%.2f", $0) } ?? "",
                 grants.map { String($0.count) } ?? "",
                 totalFunding.map(String.init) ?? "",
+            ]
+            let scopus = enrichment[m.memberID]?.scopus
+            let quality: JournalQuality? = personData[m.memberID].flatMap { data in
+                scopus.map { journalQuality(works: data.works, journals: $0.journalByISSN) }
+            }
+            let trials = enrichment[m.memberID]?.trials?.trials
+            fields += [
+                scopus?.author?.hIndex.map(String.init) ?? "",
+                scopus?.author?.documentCount.map(String.init) ?? "",
+                scopus?.author?.citationCount.map(String.init) ?? "",
+                quality?.q1Share.map { String(format: "%.0f", $0 * 100) } ?? "",
+                quality?.medianCiteScore.map { String(format: "%.1f", $0) } ?? "",
+                trials.map { String($0.count) } ?? "",
+                trials.map { String(trialsSummary($0).asPI) } ?? "",
                 member?.orcid ?? "",
                 member?.scopusID ?? "",
             ]

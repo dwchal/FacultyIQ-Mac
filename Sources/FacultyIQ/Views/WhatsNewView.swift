@@ -4,6 +4,12 @@ import SwiftUI
 /// movement per member, accumulated from cache-bypassing re-fetches.
 struct WhatsNewView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var mode: Mode = .latest
+
+    private enum Mode: String, CaseIterable {
+        case latest = "Since Last Review"
+        case between = "Between Dates"
+    }
 
     private var changed: [(member: FacultyMember, delta: RefreshDelta)] {
         store.filteredRoster
@@ -22,10 +28,20 @@ struct WhatsNewView: View {
                     systemImage: "bell.badge",
                     description: Text("Fetch metrics first — subsequent checks will report new publications and citation changes here.")
                 )
-            } else if changed.isEmpty {
-                upToDate
             } else {
-                changeList
+                VStack(spacing: 0) {
+                    Picker("", selection: $mode) {
+                        ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 340)
+                    .padding(.top, 10)
+                    switch mode {
+                    case .latest: changed.isEmpty ? AnyView(upToDate) : AnyView(changeList)
+                    case .between: AnyView(SnapshotDiffView())
+                    }
+                }
             }
         }
         .toolbar {

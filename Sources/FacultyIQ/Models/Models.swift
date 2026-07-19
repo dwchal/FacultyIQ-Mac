@@ -170,6 +170,7 @@ struct Work: Identifiable, Codable, Hashable {
     var isOA: Bool?
     var oaStatus: String?
     var venue: String?
+    var venueISSN: String? = nil // linking ISSN (issn_l); nil = fetched before ISSNs were tracked
     var authors: [WorkAuthor]?   // nil = fetched before authorships were tracked
     var topicName: String? = nil  // OpenAlex primary topic; nil = untagged or pre-topic fetch
     var topicField: String? = nil // the field that topic belongs to (e.g. "Medicine")

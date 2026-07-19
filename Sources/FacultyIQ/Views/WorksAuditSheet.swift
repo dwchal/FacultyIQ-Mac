@@ -10,6 +10,8 @@ struct WorksAuditSheet: View {
     let member: FacultyMember
     @State private var search = ""
     @State private var suspectsOnly = false
+    @State private var showCoverage = false
+    @AppStorage("enableScopus") private var scopusEnabled = false
 
     private var works: [Work] {
         store.personData[member.id]?.works ?? []
@@ -47,6 +49,7 @@ struct WorksAuditSheet: View {
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
+            scopusCoverageBar
             Divider()
             List(rows, id: \.id) { work in
                 row(work, suspect: suspects.contains(work.id))
@@ -61,6 +64,89 @@ struct WorksAuditSheet: View {
             .padding(12)
         }
         .frame(minWidth: 660, minHeight: 460)
+    }
+
+    // MARK: Scopus coverage
+
+    /// Cross-check the OpenAlex work list against the member's Scopus record
+    /// — each side's misses are candidates for missing works or
+    /// misattributions on the other.
+    @ViewBuilder
+    private var scopusCoverageBar: some View {
+        if scopusEnabled, member.scopusID?.isEmpty == false {
+            let documents = store.enrichment[member.id]?.scopus?.documents
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    if let documents {
+                        let coverage = MetricsEngine.scopusCoverage(works: works, documents: documents)
+                        Text("Scopus cross-check: \(coverage.matched) matched by DOI · \(coverage.scopusOnly.count) in Scopus only · \(coverage.openalexOnly.count) in OpenAlex only")
+                            .font(.caption)
+                        if !coverage.scopusOnly.isEmpty || !coverage.openalexOnly.isEmpty {
+                            Button(showCoverage ? "Hide Differences" : "Show Differences") {
+                                showCoverage.toggle()
+                            }
+                            .controlSize(.small)
+                        }
+                    } else {
+                        Text("Compare this list against the member's Scopus record (\(works.count { $0.doi != nil }) works have DOIs to match on).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(documents == nil ? "Cross-check vs Scopus" : "Refresh Cross-check") {
+                        Task { await store.fetchScopusDocuments(for: member) }
+                    }
+                    .controlSize(.small)
+                    .disabled(store.isBusy)
+                }
+                if showCoverage, let documents {
+                    coverageDetail(MetricsEngine.scopusCoverage(works: works, documents: documents))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
+        }
+    }
+
+    private func coverageDetail(_ coverage: MetricsEngine.ScopusCoverage) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                if !coverage.scopusOnly.isEmpty {
+                    Text("In Scopus only (\(coverage.scopusOnly.count)) — possibly missing from OpenAlex:")
+                        .font(.caption.weight(.semibold))
+                    ForEach(coverage.scopusOnly.prefix(25), id: \.eid) { doc in
+                        HStack(spacing: 6) {
+                            Link(destination: URL(string: "https://www.scopus.com/record/display.uri?eid=\(doc.eid)&origin=resultslist")!) {
+                                Image(systemName: "arrow.up.right.square")
+                            }
+                            .foregroundStyle(.secondary)
+                            Text("\(doc.title ?? doc.eid) (\(doc.coverDate?.prefix(4) ?? "—"))")
+                                .lineLimit(1)
+                        }
+                        .font(.caption)
+                    }
+                }
+                if !coverage.openalexOnly.isEmpty {
+                    Text("In OpenAlex only (\(coverage.openalexOnly.count)) — not on the Scopus record; misattribution candidates:")
+                        .font(.caption.weight(.semibold))
+                        .padding(.top, coverage.scopusOnly.isEmpty ? 0 : 4)
+                    ForEach(coverage.openalexOnly.prefix(25)) { work in
+                        Text("\(work.title) (\(work.year.map(String.init) ?? "—"))")
+                            .font(.caption)
+                            .lineLimit(1)
+                    }
+                }
+                if coverage.scopusWithoutDOI > 0 || coverage.openalexWithoutDOI > 0 {
+                    Text("Not comparable (no DOI): \(coverage.scopusWithoutDOI) Scopus docs, \(coverage.openalexWithoutDOI) OpenAlex works.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 180)
+        .padding(10)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
     }
 
     /// Suspects and retractions first, then newest first.

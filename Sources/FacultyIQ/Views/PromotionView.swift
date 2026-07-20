@@ -28,7 +28,7 @@ struct PromotionView: View {
     private var benchmarkSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Rank Benchmarks").font(.headline)
-            Text("Median within each rank, and the promotion target (25th percentile — the low end of the rank, since accumulated medians overstate the bar people cleared at promotion).")
+            Text("Median within each rank, and the promotion target (\(ordinal(percentileDisplay)) percentile — the low end of the rank, since accumulated medians overstate the bar people cleared at promotion; adjustable in Settings → Promotion).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Table(store.benchmarks.sorted(using: sortOrder), sortOrder: $sortOrder) {
@@ -65,20 +65,24 @@ struct PromotionView: View {
 
     private var nearCandidates: [PromotionProgress] {
         store.promotionProgress
-            .filter { $0.metCount == 1 }
+            .filter { $0.metCount > 0 && $0.metCount < store.promotionRequiredCount }
             .sorted { $0.closeness > $1.closeness }
+    }
+
+    private var percentileDisplay: Int {
+        Int((store.promotionTargetPercentile * 100).rounded())
     }
 
     @ViewBuilder
     private var candidateSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Promotion Candidates").font(.headline)
-            Text("Faculty meeting the next rank's promotion target on at least two of: works, citations, h-index.")
+            Text("Faculty meeting the next rank's promotion target on at least \(store.promotionRequiredCount) of: works, citations, h-index.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             if store.promotionCandidates.isEmpty {
-                Text("No one currently meets two of the three next-rank targets.")
+                Text("No one currently meets \(store.promotionRequiredCount) of the three next-rank targets.")
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
@@ -94,7 +98,7 @@ struct PromotionView: View {
         if !nearCandidates.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Close to Promotion").font(.headline)
-                Text("Meeting one of the three targets — sorted by overall progress toward the next rank.")
+                Text("Meeting some but fewer than the required \(store.promotionRequiredCount) of three targets — sorted by overall progress toward the next rank.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 ForEach(nearCandidates) { progress in

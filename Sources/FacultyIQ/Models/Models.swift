@@ -296,12 +296,13 @@ struct RankBenchmark: Identifiable {
     var medianCitations: Double
     var medianHIndex: Double
     var medianWorksPerYear: Double
-    // Promotion targets: the 25th percentile of current rank-holders — the
-    // low end of the rank, since accumulated medians overstate the bar
-    // people actually cleared at promotion.
+    // Promotion targets: a configurable percentile of current rank-holders
+    // (25th by default) — the low end of the rank, since accumulated
+    // medians overstate the bar people actually cleared at promotion.
     var targetWorks: Double
     var targetCitations: Double
     var targetHIndex: Double
+    var targetPercentile: Double
 
     var id: Int { rank.rawValue }
 }
@@ -402,6 +403,8 @@ struct PromotionProgress: Identifiable {
     var currentRank: AcademicRank
     var targetRank: AcademicRank
     var checks: [MetricCheck]
+    var requiredCount: Int
+    var targetPercentile: Double
 
     var metCount: Int { checks.count(where: \.met) }
     /// 0…3, how far along the three metrics are (each capped at its benchmark).

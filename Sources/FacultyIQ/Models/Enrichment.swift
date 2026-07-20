@@ -238,6 +238,17 @@ struct PeerCohortData: Codable, Hashable {
     var citationsPercentile: Double
     var hIndexPercentile: Double
     var fetchedAt: Date
+    /// Peer institutions the sample was restricted to; nil for the
+    /// unrestricted field-wide sample. Optional (not defaulted-non-optional)
+    /// so archives saved before this field existed still decode.
+    var institutionNames: [String]? = nil
+}
+
+/// One institution in the user-curated peer-benchmark list, resolved to its
+/// OpenAlex ID via institution-name search.
+struct PeerInstitution: Identifiable, Codable, Hashable {
+    var id: String            // OpenAlex short institution ID, e.g. "I1330342723"
+    var displayName: String
 }
 
 // MARK: - Container
@@ -247,6 +258,7 @@ struct Enrichment: Codable, Hashable {
     var grants: GrantData?
     var semanticScholar: S2Data?
     var peerCohort: PeerCohortData?
+    var peerInstitutionCohort: PeerCohortData?
     var scopus: ScopusData?
     var trials: TrialsData?
     var nsf: NSFData?

@@ -15,6 +15,8 @@ struct SettingsView: View {
                 .tabItem { Label("Data Sources", systemImage: "sparkles") }
             ReportsSettingsTab()
                 .tabItem { Label("Reports", systemImage: "doc.richtext") }
+            PromotionSettingsTab()
+                .tabItem { Label("Promotion", systemImage: "arrow.up.right.circle") }
             StorageSettingsTab()
                 .tabItem { Label("Storage", systemImage: "internaldrive") }
         }
@@ -126,6 +128,69 @@ private struct GeneralSettingsTab: View {
 
     private var lastCheckLabel: String {
         store.lastUpdateCheck.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "never"
+    }
+}
+
+/// Tunable criteria for the Promotion tab's rank benchmarks and candidacy
+/// filter — different institutions set the bar differently, so these aren't
+/// baked-in constants.
+private struct PromotionSettingsTab: View {
+    @EnvironmentObject private var store: AppStore
+    @AppStorage("promotionTargetPercentile") private var targetPercentile: Double = 25
+    @AppStorage("promotionRequiredCount") private var requiredCount = 2
+    @State private var showInstitutionSearch = false
+
+    var body: some View {
+        Form {
+            Section("Promotion Targets") {
+                Picker("Target percentile", selection: $targetPercentile) {
+                    Text("10th").tag(10.0)
+                    Text("25th (default)").tag(25.0)
+                    Text("40th").tag(40.0)
+                    Text("50th (median)").tag(50.0)
+                }
+                Text("A promotion target is this percentile of current rank-holders' works, citations, and h-index. Lower sets a lower bar (the low end of the rank); higher raises it toward the rank's median.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("Metrics required", selection: $requiredCount) {
+                    Text("1 of 3").tag(1)
+                    Text("2 of 3 (default)").tag(2)
+                    Text("3 of 3").tag(3)
+                }
+                Text("How many of works / citations / h-index a member must meet or exceed to appear as a Promotion Candidate.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Peer Institutions") {
+                if store.peerInstitutions.isEmpty {
+                    Text("No peer institutions added — the “vs Peers” benchmark on each profile stays hidden until at least one is added.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(store.peerInstitutions) { institution in
+                        HStack {
+                            Text(institution.displayName)
+                            Spacer()
+                            Button {
+                                store.removePeerInstitution(institution.id)
+                            } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("Profiles get a second Field Benchmark card restricted to authors at these institutions, alongside the existing random field-wide sample.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Button("Add Institution…") { showInstitutionSearch = true }
+            }
+        }
+        .formStyle(.grouped)
+        .sheet(isPresented: $showInstitutionSearch) {
+            InstitutionSearchSheet()
+        }
     }
 }
 

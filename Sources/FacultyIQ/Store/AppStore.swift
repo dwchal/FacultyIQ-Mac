@@ -21,6 +21,10 @@ final class AppStore: ObservableObject {
     /// Publications so the exclusion can be undone.
     @Published var excludedWorks: [UUID: Set<String>] = [:]
 
+    /// User-curated peer institutions for the "vs Peers" field benchmark —
+    /// resolved OpenAlex institution IDs, added from Settings → Promotion.
+    @Published var peerInstitutions: [PeerInstitution] = []
+
     /// Accumulated per-member changes from re-fetches, until reviewed.
     @Published var deltas: [UUID: RefreshDelta] = [:]
     @Published var lastUpdateCheck: Date?
@@ -157,16 +161,30 @@ final class AppStore: ObservableObject {
         return metrics.filter { active.contains($0.memberID) }
     }
 
+    /// Promotion target percentile, 0…1 — Settings → Promotion, 25th by default.
+    var promotionTargetPercentile: Double {
+        let percent = UserDefaults.standard.object(forKey: "promotionTargetPercentile") as? Double ?? 25
+        return percent / 100
+    }
+
+    /// How many of works/citations/h-index must be met to count as a
+    /// promotion candidate — Settings → Promotion, 2 of 3 by default.
+    var promotionRequiredCount: Int {
+        UserDefaults.standard.object(forKey: "promotionRequiredCount") as? Int ?? 2
+    }
+
     var benchmarks: [RankBenchmark] {
-        MetricsEngine.rankBenchmarks(metrics: activeMetrics)
+        MetricsEngine.rankBenchmarks(metrics: activeMetrics, targetPercentile: promotionTargetPercentile)
     }
 
     var promotionCandidates: [PromotionCandidate] {
-        MetricsEngine.promotionCandidates(metrics: activeMetrics, benchmarks: benchmarks)
+        MetricsEngine.promotionCandidates(
+            metrics: activeMetrics, benchmarks: benchmarks, requiredCount: promotionRequiredCount)
     }
 
     var promotionProgress: [PromotionProgress] {
-        MetricsEngine.promotionProgress(metrics: activeMetrics, benchmarks: benchmarks)
+        MetricsEngine.promotionProgress(
+            metrics: activeMetrics, benchmarks: benchmarks, requiredCount: promotionRequiredCount)
     }
 
     var coauthorNetwork: CoauthorNetwork {
@@ -878,15 +896,32 @@ final class AppStore: ObservableObject {
     // MARK: Peer benchmark cohort
 
     /// Benchmark one member against a random OpenAlex sample of authors
-    /// active on their dominant topic (≥10 works each).
-    func fetchPeerCohort(for member: FacultyMember) async {
+    /// active on their dominant topic (≥10 works each) — field-wide, no
+    /// institution restriction.
+    func fetchFieldCohort(for member: FacultyMember) async {
+        await fetchCohort(for: member, institutionIDs: [], resultKeyPath: \.peerCohort)
+    }
+
+    /// Benchmark one member against the same topic-based sample, restricted
+    /// to the user's curated peer institutions (Settings → Promotion).
+    func fetchPeerInstitutionCohort(for member: FacultyMember) async {
+        guard !peerInstitutions.isEmpty else {
+            lastError = "Add at least one peer institution in Settings → Promotion first."
+            return
+        }
+        await fetchCohort(for: member, institutionIDs: peerInstitutions.map(\.id),
+                          resultKeyPath: \.peerInstitutionCohort)
+    }
+
+    private func fetchCohort(for member: FacultyMember, institutionIDs: [String],
+                             resultKeyPath: WritableKeyPath<Enrichment, PeerCohortData?>) async {
         guard let data = effectiveData(for: member.id), !isBusy else { return }
         guard let topicName = MetricsEngine.personTopics(data: data, limit: 1).first?.name else {
             lastError = "\(member.name) has no topic-tagged works to match a cohort on — refresh works first."
             return
         }
         isBusy = true
-        progressText = "Sampling peers on “\(topicName)”…"
+        progressText = "Sampling \(institutionIDs.isEmpty ? "peers" : "peer institutions") on “\(topicName)”…"
         defer {
             progressText = ""
             isBusy = false
@@ -896,14 +931,18 @@ final class AppStore: ObservableObject {
                 lastError = "OpenAlex couldn't find the topic “\(topicName)”."
                 return
             }
-            let cohort = try await client.authorSample(topicID: topic.id)
+            let cohort = try await client.authorSample(topicID: topic.id, institutionIDs: institutionIDs)
             guard cohort.count >= 20, cohort.map(\.worksCount).max() ?? 0 > 0 else {
-                lastError = "OpenAlex returned no usable cohort for “\(topic.name)” — its authors index may be degraded; try again later."
+                if institutionIDs.isEmpty {
+                    lastError = "OpenAlex returned no usable cohort for “\(topic.name)” — its authors index may be degraded; try again later."
+                } else {
+                    lastError = "Only \(cohort.count) authors found across your peer institutions on “\(topic.name)” — try adding more institutions."
+                }
                 return
             }
             let m = MetricsEngine.personMetrics(member: member, data: data)
             var entry = enrichment[member.id] ?? Enrichment()
-            entry.peerCohort = PeerCohortData(
+            entry[keyPath: resultKeyPath] = PeerCohortData(
                 topicName: topic.name,
                 topicID: topic.id,
                 cohortSize: cohort.count,
@@ -913,12 +952,31 @@ final class AppStore: ObservableObject {
                     of: m.citations, in: cohort.map(\.citedByCount)),
                 hIndexPercentile: MetricsEngine.percentileRank(
                     of: m.hIndex, in: cohort.compactMap(\.hIndex)),
-                fetchedAt: Date())
+                fetchedAt: Date(),
+                institutionNames: institutionIDs.isEmpty ? nil : peerInstitutions.map(\.displayName))
             enrichment[member.id] = entry
             save()
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    // MARK: Peer institutions list
+
+    /// Search OpenAlex by institution name for the "Add Institution…" sheet.
+    func searchPeerInstitutions(name: String) async -> [InstitutionCandidate] {
+        (try? await client.searchInstitutions(name: name)) ?? []
+    }
+
+    func addPeerInstitution(_ candidate: InstitutionCandidate) {
+        guard !peerInstitutions.contains(where: { $0.id == candidate.id }) else { return }
+        peerInstitutions.append(PeerInstitution(id: candidate.id, displayName: candidate.displayName))
+        save()
+    }
+
+    func removePeerInstitution(_ id: String) {
+        peerInstitutions.removeAll { $0.id == id }
+        save()
     }
 
     /// Run an async operation over members with progress reporting; individual
@@ -960,6 +1018,7 @@ final class AppStore: ObservableObject {
         var lastUpdateCheck: Date?
         var excludedWorks: [UUID: Set<String>]?  // optional: absent in pre-exclusion state files
         var openalexJournals: OpenAlexJournalData?  // optional: absent before journal metrics
+        var peerInstitutions: [PeerInstitution]?  // optional: absent before peer-institution benchmarking
     }
 
     private var stateURL: URL {
@@ -986,7 +1045,8 @@ final class AppStore: ObservableObject {
                    personData: personData, enrichment: enrichment,
                    deltas: deltas, lastUpdateCheck: lastUpdateCheck,
                    excludedWorks: excludedWorks.isEmpty ? nil : excludedWorks,
-                   openalexJournals: openalexJournals)
+                   openalexJournals: openalexJournals,
+                   peerInstitutions: peerInstitutions.isEmpty ? nil : peerInstitutions)
     }
 
     private func apply(_ state: SavedState) {
@@ -998,6 +1058,7 @@ final class AppStore: ObservableObject {
         lastUpdateCheck = state.lastUpdateCheck
         excludedWorks = state.excludedWorks ?? [:]
         openalexJournals = state.openalexJournals
+        peerInstitutions = state.peerInstitutions ?? []
     }
 
     private func load() {

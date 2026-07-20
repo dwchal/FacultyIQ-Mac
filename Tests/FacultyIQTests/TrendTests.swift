@@ -119,7 +119,8 @@ final class TrendTests: XCTestCase {
                 .init(label: "Works", value: 10, benchmark: 16),      // unmet, 2/yr → 3 years
                 .init(label: "Citations", value: 0, benchmark: 100),  // unmet, no citation pace
                 .init(label: "h-index", value: 3, benchmark: 2),      // met
-            ])
+            ],
+            requiredCount: 2, targetPercentile: 0.25)
         let projections = MetricsEngine.trajectoryProjections(data: data, promotion: promotion)
         XCTAssertEqual(projections.map(\.label), ["Works"])
         XCTAssertEqual(projections[0].yearsToTarget, 3, accuracy: 1e-9)

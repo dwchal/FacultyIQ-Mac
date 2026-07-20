@@ -373,8 +373,10 @@ enum MetricsEngine {
 
     // MARK: Rank benchmarks & promotion insight
 
-    static func rankBenchmarks(metrics: [PersonMetrics]) -> [RankBenchmark] {
-        Dictionary(grouping: metrics.filter { $0.rank != nil }, by: { $0.rank! })
+    static func rankBenchmarks(metrics: [PersonMetrics],
+                               targetPercentile: Double = 0.25) -> [RankBenchmark] {
+        let percentile = targetPercentile.clamped(to: 0...1)
+        return Dictionary(grouping: metrics.filter { $0.rank != nil }, by: { $0.rank! })
             .map { rank, group in
                 let works = group.map { Double($0.worksCount) }
                 let citations = group.map { Double($0.citations) }
@@ -386,18 +388,21 @@ enum MetricsEngine {
                     medianCitations: citations.median,
                     medianHIndex: hIndexes.median,
                     medianWorksPerYear: group.map(\.worksPerYear).median,
-                    targetWorks: works.percentile(0.25),
-                    targetCitations: citations.percentile(0.25),
-                    targetHIndex: hIndexes.percentile(0.25)
+                    targetWorks: works.percentile(percentile),
+                    targetCitations: citations.percentile(percentile),
+                    targetHIndex: hIndexes.percentile(percentile),
+                    targetPercentile: percentile
                 )
             }
             .sorted { $0.rank < $1.rank }
     }
 
     /// Every member's standing against the next rank's promotion targets
-    /// (25th percentile of current rank-holders) on the three key metrics.
+    /// (a configurable percentile of current rank-holders, 25th by default)
+    /// on the three key metrics.
     static func promotionProgress(metrics: [PersonMetrics],
-                                  benchmarks: [RankBenchmark]) -> [PromotionProgress] {
+                                  benchmarks: [RankBenchmark],
+                                  requiredCount: Int = 2) -> [PromotionProgress] {
         let byRank = Dictionary(uniqueKeysWithValues: benchmarks.map { ($0.rank, $0) })
         return metrics.compactMap { m in
             guard let rank = m.rank, let next = rank.next,
@@ -408,17 +413,20 @@ enum MetricsEngine {
                     .init(label: "Works", value: m.worksCount, benchmark: bench.targetWorks),
                     .init(label: "Citations", value: m.citations, benchmark: bench.targetCitations),
                     .init(label: "h-index", value: m.hIndex, benchmark: bench.targetHIndex),
-                ])
+                ],
+                requiredCount: requiredCount,
+                targetPercentile: bench.targetPercentile)
         }
     }
 
     /// Faculty whose metrics meet or exceed the next rank's medians on at
-    /// least two of three key metrics — the simplified counterpart of
-    /// identify_promotion_candidates().
+    /// least `requiredCount` of three key metrics (2 by default) — the
+    /// simplified counterpart of identify_promotion_candidates().
     static func promotionCandidates(metrics: [PersonMetrics],
-                                    benchmarks: [RankBenchmark]) -> [PromotionCandidate] {
-        promotionProgress(metrics: metrics, benchmarks: benchmarks)
-            .filter { $0.metCount >= 2 }
+                                    benchmarks: [RankBenchmark],
+                                    requiredCount: Int = 2) -> [PromotionCandidate] {
+        promotionProgress(metrics: metrics, benchmarks: benchmarks, requiredCount: requiredCount)
+            .filter { $0.metCount >= requiredCount }
             .map {
                 PromotionCandidate(
                     metrics: $0.metrics, currentRank: $0.currentRank,

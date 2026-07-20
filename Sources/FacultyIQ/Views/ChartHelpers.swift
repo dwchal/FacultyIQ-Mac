@@ -1,6 +1,18 @@
 import Charts
 import SwiftUI
 
+/// English ordinal suffix for a small non-negative integer (percentile
+/// display: "25th", "40th", "50th", …).
+func ordinal(_ n: Int) -> String {
+    switch (n % 100, n % 10) {
+    case (11, _), (12, _), (13, _): return "\(n)th"
+    case (_, 1): return "\(n)st"
+    case (_, 2): return "\(n)nd"
+    case (_, 3): return "\(n)rd"
+    default: return "\(n)th"
+    }
+}
+
 /// Column mark for charts whose x is an integer year. BarMark's
 /// `width: .ratio` has no unit bandwidth on a continuous axis and silently
 /// renders zero-width bars, so span an explicit x interval (70% of a year).

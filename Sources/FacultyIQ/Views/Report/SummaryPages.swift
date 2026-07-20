@@ -102,7 +102,7 @@ enum SummaryPages {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Rank Benchmarks").font(.headline)
-                Text("Median within each rank; targets are the 25th percentile of current rank-holders.")
+                Text("Median within each rank; targets are the \(ordinal(Int(((benchmarks.first?.targetPercentile ?? 0.25) * 100).rounded()))) percentile of current rank-holders.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

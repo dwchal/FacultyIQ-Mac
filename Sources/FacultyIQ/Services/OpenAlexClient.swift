@@ -103,16 +103,39 @@ actor OpenAlexClient {
 
     /// A random sample of authors active on a topic (≥10 works), for peer
     /// percentile benchmarks. The seed keeps the sample reproducible so the
-    /// response cache stays useful.
-    func authorSample(topicID: String, size: Int = 200) async throws -> [AuthorCandidate] {
+    /// response cache stays useful. When `institutionIDs` is non-empty, the
+    /// sample is restricted to authors last known at one of those
+    /// institutions (OR-ed) — for named peer-institution benchmarking rather
+    /// than a field-wide draw.
+    func authorSample(topicID: String, institutionIDs: [String] = [],
+                      size: Int = 200) async throws -> [AuthorCandidate] {
+        var filter = "topics.id:\(topicID),works_count:>9"
+        if !institutionIDs.isEmpty {
+            filter += ",last_known_institutions.id:" + institutionIDs.joined(separator: "|")
+        }
         let url = endpoint("authors", query: [
-            URLQueryItem(name: "filter", value: "topics.id:\(topicID),works_count:>9"),
+            URLQueryItem(name: "filter", value: filter),
             URLQueryItem(name: "sample", value: String(size)),
             URLQueryItem(name: "seed", value: "42"),
             URLQueryItem(name: "per-page", value: String(min(size, 200))),
         ])
         let list: OAList<OAAuthor> = try await fetch(url)
         return list.results.map { $0.candidate }
+    }
+
+    /// Search OpenAlex institutions by name, for the user-curated peer
+    /// benchmark list — ambiguous names (e.g. "Washington University" vs
+    /// "University of Washington") need a picker, not a first-result guess.
+    func searchInstitutions(name: String, limit: Int = 10) async throws -> [InstitutionCandidate] {
+        let url = endpoint("institutions", query: [
+            URLQueryItem(name: "search", value: name),
+            URLQueryItem(name: "per-page", value: String(limit)),
+        ])
+        let list: OAList<OAInstitution> = try await fetch(url)
+        return list.results.map {
+            InstitutionCandidate(id: $0.id.shortOpenAlexID, displayName: $0.displayName,
+                                 countryCode: $0.countryCode, type: $0.type)
+        }
     }
 
     /// Journal metrics for a batch of linking ISSNs, from the OpenAlex sources
@@ -281,6 +304,22 @@ private struct OAAuthor: Decodable {
 private struct OATopic: Decodable {
     var id: String
     var displayName: String
+}
+
+private struct OAInstitution: Decodable {
+    var id: String
+    var displayName: String
+    var countryCode: String?
+    var type: String?
+}
+
+/// A candidate from an institution-name search — for adding to the
+/// user-curated peer-institution benchmark list.
+struct InstitutionCandidate: Identifiable, Hashable {
+    var id: String
+    var displayName: String
+    var countryCode: String?
+    var type: String?
 }
 
 private struct OASource: Decodable {

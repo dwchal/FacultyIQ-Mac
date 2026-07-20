@@ -71,7 +71,8 @@ final class PDFRenderTest: XCTestCase {
                 .init(label: "Works", value: metrics.worksCount, benchmark: 60),
                 .init(label: "Citations", value: metrics.citations, benchmark: 5000),
                 .init(label: "h-index", value: metrics.hIndex, benchmark: 30),
-            ])
+            ],
+            requiredCount: 2, targetPercentile: 0.25)
 
         // Dossier: 30 works → overview + 2 works pages.
         let dossierURL = outDir.appendingPathComponent("test_dossier.pdf")

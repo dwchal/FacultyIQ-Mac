@@ -41,13 +41,16 @@ individual profiles, coauthorship networks, and promotion insights.
   citations, a cumulative-works projection to the next rank's target at the
   current 5-year pace, and a career-normalized comparison (cumulative works by
   years since first publication, against the cohort median).
-- **Promotion insights** — per-rank medians plus a *promotion target* (the
-  25th percentile of current rank-holders, since accumulated medians overstate
-  the bar people actually cleared at promotion). Candidates meet the next
-  rank's target on ≥ 2 of works / citations / h-index; a *Close to Promotion*
-  section shows near-misses with per-metric gaps, time-to-target pace
-  estimates, and a nearest-rank prediction chip (a port of the Shiny app's
-  weighted rank-distance model).
+- **Promotion insights** — per-rank medians plus a *promotion target* (a
+  configurable percentile of current rank-holders, 25th by default, since
+  accumulated medians overstate the bar people actually cleared at
+  promotion). Candidates meet the next rank's target on a configurable number
+  of works / citations / h-index (2 of 3 by default); both the target
+  percentile and the required count are adjustable in **Settings →
+  Promotion**, since institutions set the bar differently. A *Close to
+  Promotion* section shows near-misses with per-metric gaps, time-to-target
+  pace estimates, and a nearest-rank prediction chip (a port of the Shiny
+  app's weighted rank-distance model).
 - **Research topics** — what the division actually works on, from each work's
   OpenAlex primary topic: top topics (coauthored works counted once), decade
   trend lines for the leading topics, a sortable topic × field × faculty
@@ -161,7 +164,11 @@ individual profiles, coauthorship networks, and promotion insights.
 - **Field benchmark** — one click samples a random OpenAlex cohort of authors
   on the member's dominant topic (≥10 works each) and shows the member's
   works/citations/h-index percentiles within it — external context the
-  in-division benchmarks can't give.
+  in-division benchmarks can't give. Add named peer institutions in
+  **Settings → Promotion** (searched and resolved against OpenAlex, so
+  "Mayo Clinic" and "Mayo Clinic in Arizona" don't get conflated) for a
+  second *Peer Institution Benchmark* card restricted to authors at those
+  institutions specifically, alongside the random field-wide sample.
 - **Suggested collaborations** — the Network tab lists member pairs who
   publish on the same topics but have never co-published.
 - **Automatic updates** — optional scheduled re-checks (daily/weekly/monthly)

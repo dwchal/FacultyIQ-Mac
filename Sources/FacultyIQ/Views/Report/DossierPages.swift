@@ -178,7 +178,7 @@ enum DossierPages {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Promotion Readiness").font(.headline)
-                Text("Against the \(promotion.targetRank.label) promotion targets (25th percentile of current rank-holders in view)")
+                Text("Against the \(promotion.targetRank.label) promotion targets (\(ordinal(Int((promotion.targetPercentile * 100).rounded()))) percentile of current rank-holders in view)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -197,11 +197,11 @@ enum DossierPages {
                 }
                 .font(.callout)
             }
-            Text(promotion.metCount >= 2
-                 ? "Meets the promotion criteria (\(promotion.metCount) of 3 targets; 2 required)."
-                 : "Meets \(promotion.metCount) of 3 targets — promotion candidates need 2.")
+            Text(promotion.metCount >= promotion.requiredCount
+                 ? "Meets the promotion criteria (\(promotion.metCount) of \(promotion.checks.count) targets; \(promotion.requiredCount) required)."
+                 : "Meets \(promotion.metCount) of \(promotion.checks.count) targets — promotion candidates need \(promotion.requiredCount).")
                 .font(.caption)
-                .foregroundStyle(promotion.metCount >= 2 ? ChartPalette.positive : Color.secondary)
+                .foregroundStyle(promotion.metCount >= promotion.requiredCount ? ChartPalette.positive : Color.secondary)
         }
         .padding(12)
         .background(ReportStyle.cardFill, in: RoundedRectangle(cornerRadius: 6))

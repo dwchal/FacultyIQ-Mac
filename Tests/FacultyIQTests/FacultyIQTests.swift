@@ -129,6 +129,36 @@ final class MetricsEngineTests: XCTestCase {
         XCTAssertEqual(candidates.map(\.metrics.name), ["Strong Assoc"])
         XCTAssertEqual(candidates.first?.targetRank, .full)
     }
+
+    func testPromotionCandidatesConfigurable() {
+        func metrics(_ name: String, rank: AcademicRank, works: Int, cites: Int, h: Int) -> PersonMetrics {
+            PersonMetrics(
+                memberID: UUID(), name: name, rank: rank, rawRank: rank.label,
+                worksCount: works, citations: cites, hIndex: h, i10Index: 0,
+                citationsPerWork: 0, worksPerYear: 0, oaPercent: nil,
+                recentWorks5y: 0, firstPubYear: nil, careerYears: 1)
+        }
+        // "Border" sits exactly at the .full cohort's median on all three
+        // metrics — comfortably clears the default 25th-percentile/2-of-3
+        // bar, but clears none of the three at the median/3-of-3 bar.
+        let all = [
+            metrics("Border", rank: .associate, works: 100, cites: 4000, h: 25),
+            metrics("Full A", rank: .full, works: 80, cites: 3000, h: 20),
+            metrics("Full B", rank: .full, works: 100, cites: 4000, h: 25),
+            metrics("Full C", rank: .full, works: 120, cites: 5000, h: 30),
+            metrics("Full D", rank: .full, works: 140, cites: 6000, h: 35),
+        ]
+
+        let defaultBenchmarks = MetricsEngine.rankBenchmarks(metrics: all)
+        let defaultCandidates = MetricsEngine.promotionCandidates(metrics: all, benchmarks: defaultBenchmarks)
+        XCTAssertEqual(defaultCandidates.map(\.metrics.name), ["Border"])
+
+        let strictBenchmarks = MetricsEngine.rankBenchmarks(metrics: all, targetPercentile: 0.5)
+        XCTAssertEqual(strictBenchmarks.first { $0.rank == .full }?.targetPercentile, 0.5)
+        let strictCandidates = MetricsEngine.promotionCandidates(
+            metrics: all, benchmarks: strictBenchmarks, requiredCount: 3)
+        XCTAssertTrue(strictCandidates.isEmpty)
+    }
 }
 
 final class CoauthorNetworkTests: XCTestCase {

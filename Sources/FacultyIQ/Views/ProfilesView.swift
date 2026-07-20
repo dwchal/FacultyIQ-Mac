@@ -159,6 +159,7 @@ private struct ProfileDetail: View {
                 notesCard
                 dataQualityCard
                 peerBenchmarkCard
+                peerInstitutionBenchmarkCard
                 promotionCard
                 fundingCard
                 nsfCard
@@ -545,7 +546,7 @@ private struct ProfileDetail: View {
                 }
                 Spacer()
                 Button(enrichment?.peerCohort == nil ? "Benchmark vs Field" : "Refresh") {
-                    Task { await store.fetchPeerCohort(for: member) }
+                    Task { await store.fetchFieldCohort(for: member) }
                 }
                 .disabled(store.isBusy)
             }
@@ -559,6 +560,42 @@ private struct ProfileDetail: View {
         }
         .padding(16)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private var peerInstitutionBenchmarkCard: some View {
+        if !store.peerInstitutions.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Peer Institution Benchmark").font(.headline)
+                        if let cohort = enrichment?.peerInstitutionCohort {
+                            Text("vs \(cohort.cohortSize) authors publishing on \(cohort.topicName) at \((cohort.institutionNames ?? []).joined(separator: ", ")) (≥10 works each), sampled \(cohort.fetchedAt.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Percentile standing among authors on this member's dominant topic at your chosen peer institutions: \(store.peerInstitutions.map(\.displayName).joined(separator: ", ")).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Button(enrichment?.peerInstitutionCohort == nil ? "Benchmark vs Peers" : "Refresh") {
+                        Task { await store.fetchPeerInstitutionCohort(for: member) }
+                    }
+                    .disabled(store.isBusy)
+                }
+                if let cohort = enrichment?.peerInstitutionCohort {
+                    HStack(spacing: 12) {
+                        percentileTile("Works", cohort.worksPercentile)
+                        percentileTile("Citations", cohort.citationsPercentile)
+                        percentileTile("h-index", cohort.hIndexPercentile)
+                    }
+                }
+            }
+            .padding(16)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 
     private func percentileTile(_ label: String, _ percentile: Double) -> some View {

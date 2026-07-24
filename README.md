@@ -86,6 +86,27 @@ individual profiles, coauthorship networks, and promotion insights.
   (works, citations, h-index incl. Scopus, authorship positions, RCR, Q1
   share, NIH funding, trials), best value bolded, with division rank-medians
   for context — exportable as a one-page PDF for committee meetings.
+- **Saved cohorts** — build named faculty sets that cross division boundaries,
+  compare their headline metrics and top topics side by side, and select any
+  cohort as the scope for every dashboard, analysis, and export. Cohorts stay
+  linked to the roster rather than copying faculty records, so later edits
+  remain in sync.
+- **Data confidence & provenance** — a per-member readiness score with the
+  source, value, and retrieval date behind each metric. Stale data, weak
+  identity anchors, missing DOI/authorship/topic coverage, and material
+  OpenAlex-vs-Scopus disagreements become an explainable review queue rather
+  than silent caveats. The score measures data readiness, never faculty
+  quality.
+- **Opportunity radar** — search the live, keyless Grants.gov catalog for
+  posted and forecast opportunities, starting from the cohort's own OpenAlex
+  topics. Each opportunity gets an explainable internal-team ranking from
+  topic overlap, research-leadership signals, and prior NIH/NSF funding, plus
+  frequent external collaborators already connected to that team.
+- **Publication reconciliation** — import BibTeX, RIS, or CSV exported from
+  ORCID, Zotero, EndNote, or a CV system and compare it with a member's
+  OpenAlex works. DOI matches are definitive, normalized-title matches are
+  called out separately, and missing records form a persistent inbox where
+  each item can be resolved or ignored.
 - **Funding dashboard** — division-level rollup of the attached NIH grants:
   total awarded, funded faculty, active and R01-equivalent projects, awards by
   fiscal year and by activity code, and the most-funded faculty. Multi-PI
@@ -267,8 +288,8 @@ NetworkRenderTest` or `RENDER_OUT=/tmp swift test --filter PDFRenderTest`.
 2. **Resolution** — click *Auto-Resolve All* (uses ORCID/Scopus IDs), then
    *Search…* for anyone left, then *Fetch Metrics*.
 3. **Dashboard / Profiles / Promotion / Topics / Network / External
-   Collaborators** — explore; use the toolbar division picker to focus on one
-   division.
+   Collaborators** — explore; use the toolbar scope menu to focus on one
+   division or a saved cohort.
 4. **Enrich (optional)** — enable iCite / RePORTER / Semantic Scholar /
    ClinicalTrials.gov / Scopus in **Settings → Data Sources** (Scopus also
    needs your API key, and works only on the institutional network or VPN),
@@ -281,6 +302,9 @@ NetworkRenderTest` or `RENDER_OUT=/tmp swift test --filter PDFRenderTest`.
 6. **Come back later** — *Check for Updates* on the What's New tab re-fetches
    everyone and shows what changed; each visit also extends the tracked
    history charts.
+7. **Act on the data** — save reusable cohorts, inspect *Data Confidence*,
+   search *Opportunity Radar*, and use *Publication Reconciliation* to compare
+   a CV or ORCID export with the fetched record.
 
 Set your email in **Settings → OpenAlex** to join the
 [polite pool](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication)
@@ -294,7 +318,8 @@ outside this repository — and roster emails are never sent to any API. Network
 traffic is limited to OpenAlex lookups by author ID, name, or journal ISSN
 plus, when the optional enrichment sources are enabled, PMID/DOI/name/ID
 lookups against NIH iCite, NIH RePORTER, NSF Awards, Semantic Scholar,
-ClinicalTrials.gov, and Elsevier's Scopus APIs; everything is cached locally
+ClinicalTrials.gov, and Elsevier's Scopus APIs, plus searches sent to
+Grants.gov only when you use Opportunity Radar; everything is cached locally
 for 7 days. Review notes stay on your Mac and are never sent anywhere. The Scopus API key is
 stored in the app's preferences on your Mac and sent only to api.elsevier.com.
 The `data/` directory in this repo ignores everything except the fictional
@@ -313,5 +338,6 @@ enrichment adds [NIH iCite](https://icite.od.nih.gov) (RCR / NIH percentile),
 and [ClinicalTrials.gov](https://clinicaltrials.gov) (registered trials) —
 all keyless — plus [Scopus](https://dev.elsevier.com) (author metrics and
 CiteScore/SNIP/SJR journal quality) with a free but institution-bound
-Elsevier API key. The Shiny app's Google Scholar/bibliometrix layers are not
-ported (no API).
+Elsevier API key. The Opportunity Radar searches the public
+[Grants.gov](https://www.grants.gov) opportunity catalog without a key. The
+Shiny app's Google Scholar/bibliometrix layers are not ported (no API).

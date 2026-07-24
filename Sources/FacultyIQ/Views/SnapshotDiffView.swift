@@ -90,7 +90,7 @@ struct SnapshotDiffView: View {
                     try PDFComposer.write(
                         pages: SnapshotDiffPages.pages(
                             diffs: diffs, from: fromDate, to: toDate,
-                            divisionName: store.divisionFilter),
+                            divisionName: store.scopeName),
                         to: url)
                 }) {
                 store.lastError = error.localizedDescription
@@ -141,7 +141,7 @@ enum SnapshotDiffPages {
     static func pages(diffs: [MetricsEngine.SnapshotDiffPair],
                       from: Date, to: Date,
                       divisionName: String?) -> [AnyView] {
-        let scope = divisionName ?? "All Divisions"
+        let scope = divisionName ?? "All Faculty"
         let range = "\(from.formatted(date: .abbreviated, time: .omitted)) – \(to.formatted(date: .abbreviated, time: .omitted))"
         let works = diffs.map(\.worksDelta).reduce(0, +)
         let citations = diffs.map(\.citationsDelta).reduce(0, +)

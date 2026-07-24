@@ -161,7 +161,7 @@ struct WhatsNewView: View {
                 .font(.headline)
             if let earliest {
                 Text("Since \(earliest.formatted(date: .abbreviated, time: .omitted))" +
-                     (store.divisionFilter.map { " · \($0)" } ?? ""))
+                     (store.scopeName.map { " · \($0)" } ?? ""))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

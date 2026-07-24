@@ -1,22 +1,59 @@
 import SwiftUI
 
-/// Toolbar picker for the data tabs: restrict every analysis view to one
-/// division. Hidden while the roster has no division data.
+/// Shared scope menu for every analysis tab: all faculty, one division, or a
+/// reusable saved cohort.
 struct DivisionFilterToolbar: ToolbarContent {
     @ObservedObject var store: AppStore
 
     var body: some ToolbarContent {
         ToolbarItem {
-            if !store.divisions.isEmpty {
-                Picker("Division", selection: $store.divisionFilter) {
-                    Text("All Divisions").tag(String?.none)
-                    Divider()
-                    ForEach(store.divisions, id: \.self) { division in
-                        Text(division).tag(String?.some(division))
+            if !store.divisions.isEmpty || !store.cohorts.isEmpty {
+                Menu {
+                    Button {
+                        store.selectDivision(nil)
+                    } label: {
+                        if store.scopeName == nil {
+                            Label("All Faculty", systemImage: "checkmark")
+                        } else {
+                            Text("All Faculty")
+                        }
                     }
+                    if !store.divisions.isEmpty {
+                        Section("Divisions") {
+                            ForEach(store.divisions, id: \.self) { division in
+                                Button {
+                                    store.selectDivision(division)
+                                } label: {
+                                    if store.divisionFilter == division {
+                                        Label(division, systemImage: "checkmark")
+                                    } else {
+                                        Text(division)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !store.cohorts.isEmpty {
+                        Section("Saved Cohorts") {
+                            ForEach(store.cohorts) { cohort in
+                                Button {
+                                    store.selectCohort(cohort.id)
+                                } label: {
+                                    if store.cohortFilterID == cohort.id {
+                                        Label(cohort.name, systemImage: "checkmark")
+                                    } else {
+                                        Text(cohort.name)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label(store.scopeName ?? "All Faculty",
+                          systemImage: store.cohortFilterID == nil
+                              ? "person.3" : "person.3.sequence")
                 }
-                .pickerStyle(.menu)
-                .help("Filter the analysis tabs to one division")
+                .help("Choose the faculty scope used by every analysis tab and export")
             }
         }
     }

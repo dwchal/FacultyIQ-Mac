@@ -25,6 +25,19 @@ final class AppStore: ObservableObject {
     /// resolved OpenAlex institution IDs, added from Settings → Promotion.
     @Published var peerInstitutions: [PeerInstitution] = []
 
+    /// Named, arbitrary faculty sets reusable across every analysis tab.
+    @Published var cohorts: [SavedCohort] = []
+
+    /// Session-only cohort scope. A cohort and division are mutually
+    /// exclusive when selected through the shared scope toolbar.
+    @Published var cohortFilterID: UUID? = nil {
+        didSet { invalidateDerived() }
+    }
+
+    /// Latest public Grants.gov radar results and CV/reference imports.
+    @Published var opportunities: [FundingOpportunity] = []
+    @Published var importedPublications: [ImportedPublication] = []
+
     /// Accumulated per-member changes from re-fetches, until reviewed.
     @Published var deltas: [UUID: RefreshDelta] = [:]
     @Published var lastUpdateCheck: Date?
@@ -55,6 +68,7 @@ final class AppStore: ObservableObject {
     @Published var pendingSidebarTarget: SidebarItem?
 
     private let client = OpenAlexClient.shared
+    private let opportunityClient = GrantsOpportunityClient.shared
     private let notificationDelegate = NotificationDelegate()
 
     init() {
@@ -97,8 +111,31 @@ final class AppStore: ObservableObject {
 
     /// The roster as the analysis tabs see it: everyone, or one division.
     var filteredRoster: [FacultyMember] {
+        if let cohortFilterID,
+           let cohort = cohorts.first(where: { $0.id == cohortFilterID }) {
+            return roster.filter { cohort.memberIDs.contains($0.id) }
+        }
         guard let filter = divisionFilter, divisions.contains(filter) else { return roster }
         return roster.filter { $0.division == filter }
+    }
+
+    /// User-facing label for the current analysis scope, whether it came from
+    /// the legacy division filter or a saved cohort.
+    var scopeName: String? {
+        if let cohortFilterID {
+            return cohorts.first(where: { $0.id == cohortFilterID })?.name
+        }
+        return divisionFilter
+    }
+
+    func selectDivision(_ division: String?) {
+        cohortFilterID = nil
+        divisionFilter = division
+    }
+
+    func selectCohort(_ id: UUID?) {
+        divisionFilter = nil
+        cohortFilterID = id
     }
 
     /// personData with each member's excluded works removed, superseded
@@ -323,6 +360,9 @@ final class AppStore: ObservableObject {
         enrichment = [:]
         deltas = [:]
         excludedWorks = [:]
+        cohorts = []
+        importedPublications = []
+        cohortFilterID = nil
         divisionFilter = nil
         lastError = nil
         save()
@@ -373,6 +413,17 @@ final class AppStore: ObservableObject {
             deltas[id] = nil
             excludedWorks[id] = nil
         }
+        cohorts = cohorts.compactMap { cohort in
+            var updated = cohort
+            updated.memberIDs.subtract(ids)
+            if updated.memberIDs != cohort.memberIDs { updated.updatedAt = Date() }
+            return updated.memberIDs.isEmpty ? nil : updated
+        }
+        importedPublications.removeAll { ids.contains($0.memberID) }
+        if let cohortFilterID,
+           !cohorts.contains(where: { $0.id == cohortFilterID }) {
+            self.cohortFilterID = nil
+        }
         save()
     }
 
@@ -383,8 +434,114 @@ final class AppStore: ObservableObject {
         enrichment = [:]
         deltas = [:]
         excludedWorks = [:]
+        cohorts = []
+        opportunities = []
+        importedPublications = []
+        cohortFilterID = nil
         divisionFilter = nil
         save()
+    }
+
+    // MARK: Saved cohorts
+
+    func saveCohort(id: UUID? = nil, name: String, memberIDs: Set<UUID>) {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty, !memberIDs.isEmpty else { return }
+        let validIDs = memberIDs.intersection(Set(roster.map(\.id)))
+        guard !validIDs.isEmpty else { return }
+        if let id, let index = cohorts.firstIndex(where: { $0.id == id }) {
+            cohorts[index].name = cleaned
+            cohorts[index].memberIDs = validIDs
+            cohorts[index].updatedAt = Date()
+        } else {
+            cohorts.append(SavedCohort(name: cleaned, memberIDs: validIDs))
+        }
+        cohorts.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        save()
+    }
+
+    func deleteCohort(_ id: UUID) {
+        cohorts.removeAll { $0.id == id }
+        if cohortFilterID == id { cohortFilterID = nil }
+        save()
+    }
+
+    func cohortMembers(_ cohort: SavedCohort) -> [FacultyMember] {
+        roster.filter { cohort.memberIDs.contains($0.id) }
+            .sorted { $0.surnameSortKey < $1.surnameSortKey }
+    }
+
+    // MARK: Opportunity radar
+
+    func searchOpportunities(query: String, refresh: Bool = false) async {
+        guard !isBusy else { return }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isBusy = true
+        progressText = "Searching Grants.gov for \(trimmed)…"
+        lastError = nil
+        defer {
+            progressText = ""
+            isBusy = false
+        }
+        do {
+            let found = try await opportunityClient.search(
+                query: trimmed, bypassCache: refresh)
+            var byID = Dictionary(uniqueKeysWithValues: opportunities.map { ($0.id, $0) })
+            for opportunity in found { byID[opportunity.id] = opportunity }
+            opportunities = byID.values.sorted {
+                ($0.closeDate ?? .distantFuture, $0.title)
+                    < ($1.closeDate ?? .distantFuture, $1.title)
+            }
+            save()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func clearOpportunities() {
+        opportunities = []
+        save()
+    }
+
+    // MARK: Publication reconciliation
+
+    func importPublications(from url: URL, for memberID: UUID) {
+        do {
+            let imported = try PublicationReferenceImporter.importFile(url, memberID: memberID)
+            var existingKeys = Set(importedPublications
+                .filter { $0.memberID == memberID }
+                .map { publicationImportKey($0) })
+            for publication in imported {
+                let key = publicationImportKey(publication)
+                if existingKeys.insert(key).inserted {
+                    importedPublications.append(publication)
+                }
+            }
+            save()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setReconciliationDisposition(_ disposition: ReconciliationDisposition,
+                                      publicationID: UUID) {
+        guard let index = importedPublications.firstIndex(where: { $0.id == publicationID })
+        else { return }
+        importedPublications[index].disposition = disposition
+        save()
+    }
+
+    func clearImportedPublications(for memberID: UUID) {
+        importedPublications.removeAll { $0.memberID == memberID }
+        save()
+    }
+
+    private func publicationImportKey(_ publication: ImportedPublication) -> String {
+        if let doi = publication.doi {
+            return "doi:\(PublicationReferenceImporter.normalizeDOI(doi))"
+        }
+        return "title:\(PublicationReferenceImporter.normalizedTitle(publication.title))"
     }
 
     // MARK: Resolution
@@ -1019,6 +1176,9 @@ final class AppStore: ObservableObject {
         var excludedWorks: [UUID: Set<String>]?  // optional: absent in pre-exclusion state files
         var openalexJournals: OpenAlexJournalData?  // optional: absent before journal metrics
         var peerInstitutions: [PeerInstitution]?  // optional: absent before peer-institution benchmarking
+        var cohorts: [SavedCohort]? = nil
+        var opportunities: [FundingOpportunity]? = nil
+        var importedPublications: [ImportedPublication]? = nil
     }
 
     private var stateURL: URL {
@@ -1046,7 +1206,10 @@ final class AppStore: ObservableObject {
                    deltas: deltas, lastUpdateCheck: lastUpdateCheck,
                    excludedWorks: excludedWorks.isEmpty ? nil : excludedWorks,
                    openalexJournals: openalexJournals,
-                   peerInstitutions: peerInstitutions.isEmpty ? nil : peerInstitutions)
+                   peerInstitutions: peerInstitutions.isEmpty ? nil : peerInstitutions,
+                   cohorts: cohorts.isEmpty ? nil : cohorts,
+                   opportunities: opportunities.isEmpty ? nil : opportunities,
+                   importedPublications: importedPublications.isEmpty ? nil : importedPublications)
     }
 
     private func apply(_ state: SavedState) {
@@ -1059,6 +1222,9 @@ final class AppStore: ObservableObject {
         excludedWorks = state.excludedWorks ?? [:]
         openalexJournals = state.openalexJournals
         peerInstitutions = state.peerInstitutions ?? []
+        cohorts = state.cohorts ?? []
+        opportunities = state.opportunities ?? []
+        importedPublications = state.importedPublications ?? []
     }
 
     private func load() {
@@ -1123,6 +1289,7 @@ final class AppStore: ObservableObject {
         guard archive.formatVersion <= WorkspaceArchive.currentFormatVersion else {
             throw ArchiveError.tooNew(archive.formatVersion)
         }
+        cohortFilterID = nil
         divisionFilter = nil
         lastError = nil
         apply(archive.state)

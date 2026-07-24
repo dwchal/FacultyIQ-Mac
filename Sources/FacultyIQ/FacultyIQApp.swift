@@ -97,7 +97,7 @@ struct FacultyIQApp: App {
             store.lastError = "No data to report yet — fetch data first."
             return
         }
-        let scope = store.divisionFilter
+        let scope = store.scopeName
         let pages = SummaryPages.pages(
             summary: store.summary,
             metrics: store.metrics,

@@ -8,11 +8,15 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case profiles = "Faculty Profiles"
     case promotion = "Promotion Insights"
     case comparison = "Compare Faculty"
+    case cohorts = "Saved Cohorts"
     case topics = "Topics"
     case publications = "Publications"
     case funding = "Funding"
+    case opportunities = "Opportunity Radar"
     case network = "Network"
     case external = "External Collaborators"
+    case dataQuality = "Data Confidence"
+    case reconciliation = "Publication Reconciliation"
     case export = "Export"
 
     var id: String { rawValue }
@@ -26,11 +30,15 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .profiles: "person.text.rectangle"
         case .promotion: "arrow.up.right.circle"
         case .comparison: "person.line.dotted.person"
+        case .cohorts: "person.3.sequence"
         case .topics: "tag"
         case .publications: "doc.text"
         case .funding: "dollarsign.circle"
+        case .opportunities: "scope"
         case .network: "point.3.connected.trianglepath.dotted"
         case .external: "person.2.wave.2"
+        case .dataQuality: "checkmark.shield"
+        case .reconciliation: "doc.text.magnifyingglass"
         case .export: "square.and.arrow.up"
         }
     }
@@ -48,10 +56,10 @@ enum SidebarSection: String, CaseIterable {
     var items: [SidebarItem] {
         switch self {
         case .overview: [.dashboard, .whatsNew]
-        case .faculty: [.profiles, .promotion, .comparison]
-        case .research: [.topics, .publications, .funding]
+        case .faculty: [.profiles, .promotion, .comparison, .cohorts]
+        case .research: [.topics, .publications, .funding, .opportunities]
         case .collaboration: [.network, .external]
-        case .data: [.roster, .resolution, .export]
+        case .data: [.roster, .resolution, .dataQuality, .reconciliation, .export]
         }
     }
 }
@@ -137,11 +145,15 @@ struct ContentView: View {
         case .profiles: ProfilesView()
         case .promotion: PromotionView()
         case .comparison: ComparisonView()
+        case .cohorts: CohortsView()
         case .topics: TopicsView()
         case .publications: PublicationsView()
         case .funding: FundingView()
+        case .opportunities: OpportunityRadarView()
         case .network: NetworkView()
         case .external: ExternalCollaboratorsView()
+        case .dataQuality: DataConfidenceView()
+        case .reconciliation: ReconciliationView()
         case .export: ExportView()
         }
     }
@@ -150,8 +162,9 @@ struct ContentView: View {
     /// their own workflow toolbars.
     private var showsRefresh: Bool {
         switch selection ?? .dashboard {
-        case .dashboard, .whatsNew, .profiles, .promotion, .comparison, .topics, .publications,
-             .funding, .network, .external, .export: true
+        case .dashboard, .whatsNew, .profiles, .promotion, .comparison, .cohorts, .topics,
+             .publications, .funding, .opportunities, .network, .external, .dataQuality,
+             .reconciliation, .export: true
         case .roster, .resolution: false
         }
     }
@@ -162,6 +175,8 @@ struct ContentView: View {
         case .resolution: store.roster.count - store.resolutions.count
         case .whatsNew: store.deltas.count
         case .promotion: store.promotionCandidates.count
+        case .reconciliation:
+            store.importedPublications.count { $0.disposition == .pending }
         default: 0
         }
     }

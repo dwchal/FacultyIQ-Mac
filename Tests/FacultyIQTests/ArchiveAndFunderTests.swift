@@ -84,6 +84,25 @@ final class ArchiveAndFunderTests: XCTestCase {
         XCTAssertEqual(restored.appVersion, "1.3")
     }
 
+    func testArchivePreservesStrategicWorkflowState() throws {
+        var state = sampleState()
+        let memberID = try XCTUnwrap(state.roster.first?.id)
+        state.cohorts = [SavedCohort(name: "Review Group", memberIDs: [memberID])]
+        state.opportunities = [FundingOpportunity(
+            id: "123", number: "RFA-TEST", title: "Test Opportunity",
+            agencyCode: "HHS-NIH11", agencyName: "NIH",
+            openDate: nil, closeDate: Date(timeIntervalSince1970: 1_800_000_000),
+            status: "posted", assistanceListings: ["93.000"],
+            matchedQuery: "test", fetchedAt: Date(timeIntervalSince1970: 1_700_000_000))]
+        state.importedPublications = [ImportedPublication(
+            memberID: memberID, title: "Imported Work", doi: "10.1/test",
+            year: 2025, sourceFormat: .bibtex)]
+        let restored = try roundTrip(archive(state))
+        XCTAssertEqual(restored.state.cohorts?.first?.name, "Review Group")
+        XCTAssertEqual(restored.state.opportunities?.first?.number, "RFA-TEST")
+        XCTAssertEqual(restored.state.importedPublications?.first?.title, "Imported Work")
+    }
+
     func testStateFromABareRosterStillDecodes() throws {
         // A pre-notes, pre-journals state file: every added field is optional,
         // so old archives and old state.json files must still load.

@@ -143,8 +143,8 @@ struct ExportView: View {
             } header: {
                 Text("Data Exports")
             } footer: {
-                if store.divisionFilter != nil {
-                    Text("Exports include only the selected division; choose All Divisions in the toolbar to export everyone.")
+                if let scope = store.scopeName {
+                    Text("Exports include only “\(scope)”; choose All Faculty in the toolbar to export everyone.")
                 }
             }
             Section {
@@ -177,7 +177,7 @@ struct ExportView: View {
             }
             Spacer()
             Button("Save as PDF…") {
-                let scope = store.divisionFilter
+                let scope = store.scopeName
                 save(defaultName: "\(sanitize(scope ?? "faculty"))_report.pdf", type: .pdf) { url in
                     try PDFComposer.write(
                         pages: SummaryPages.pages(

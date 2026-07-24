@@ -10,7 +10,7 @@ enum SummaryPages {
                       benchmarks: [RankBenchmark],
                       divisionName: String?,
                       scopusLine: String? = nil) -> [AnyView] {
-        let scope = divisionName ?? "All Divisions"
+        let scope = divisionName ?? "All Faculty"
         func footer(_ page: Int) -> String {
             "\(scope) — Faculty Report · page \(page)/2 · \(ReportStyle.generatedLine)"
         }
